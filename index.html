@@ -1,13 +1,13 @@
-<!DOCTYPE html><html lang="fr">
+<!DOCTYPE html>
+<html lang="fr">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#121824"><title>Robot d'analyse XAU/USD — H1</title>
+    <meta name="theme-color" content="#121824">
+    <title>Robot d'analyse XAU/USD — H1</title>
 
 <style>
-    * {
-        box-sizing: border-box;
-    }
+    * { box-sizing: border-box; }
 
     body {
         font-family: Arial, sans-serif;
@@ -28,13 +28,8 @@
         margin-bottom: 20px;
     }
 
-    h1 {
-        font-size: 1.4rem;
-    }
-
-    h1, h2, h3 {
-        margin-top: 0;
-    }
+    h1 { font-size: 1.4rem; }
+    h1, h2, h3 { margin-top: 0; }
 
     .status {
         padding: 8px 12px;
@@ -42,30 +37,17 @@
         font-size: 0.85rem;
         font-weight: bold;
     }
-
-    .status.connected {
-        background: #27ae60;
-        color: white;
-    }
-
-    .status.disconnected {
-        background: #c0392b;
-        color: white;
-    }
+    .status.connected { background: #27ae60; color: white; }
+    .status.disconnected { background: #c0392b; color: white; }
 
     .dashboard {
         display: grid;
-        grid-template-columns: repeat(
-            auto-fit,
-            minmax(min(100%, 260px), 1fr)
-        );
+        grid-template-columns: repeat(auto-fit, minmax(min(100%, 260px), 1fr));
         gap: 16px;
         margin-bottom: 20px;
     }
 
-    .card,
-    .details-section,
-    .history-section {
+    .card, .details-section, .history-section {
         background: #1e272e;
         padding: 18px;
         border-radius: 8px;
@@ -73,22 +55,13 @@
         overflow-wrap: anywhere;
     }
 
-    .highlight {
-        border: 1px solid #487eb0;
-    }
+    .highlight { border: 1px solid #487eb0; }
 
-    .value {
-        font-size: 1.7rem;
-        font-weight: bold;
-        margin: 12px 0;
-    }
+    .value { font-size: 1.7rem; font-weight: bold; margin: 12px 0; }
 
     .indicators {
         display: grid;
-        grid-template-columns: repeat(
-            auto-fit,
-            minmax(130px, 1fr)
-        );
+        grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
         gap: 12px;
         margin-bottom: 20px;
     }
@@ -99,7 +72,6 @@
         border-radius: 8px;
         overflow-wrap: anywhere;
     }
-
     .indicator span {
         display: block;
         margin-top: 8px;
@@ -113,21 +85,9 @@
         border-radius: 4px;
         font-weight: bold;
     }
-
-    .badge.buy {
-        background: #27ae60;
-        color: white;
-    }
-
-    .badge.sell {
-        background: #c0392b;
-        color: white;
-    }
-
-    .badge.none {
-        background: #718093;
-        color: white;
-    }
+    .badge.buy { background: #27ae60; color: white; }
+    .badge.sell { background: #c0392b; color: white; }
+    .badge.none { background: #718093; color: white; }
 
     button {
         background: #487eb0;
@@ -140,11 +100,7 @@
         cursor: pointer;
         min-height: 44px;
     }
-
-    button:disabled {
-        opacity: 0.6;
-        cursor: wait;
-    }
+    button:disabled { opacity: 0.6; cursor: wait; }
 
     .section-heading {
         display: flex;
@@ -154,15 +110,9 @@
         gap: 12px;
     }
 
-    .muted {
-        color: #a4b0be;
-        font-size: 0.9rem;
-    }
+    .muted { color: #a4b0be; font-size: 0.9rem; }
 
-    .table-wrapper {
-        overflow-x: auto;
-        -webkit-overflow-scrolling: touch;
-    }
+    .table-wrapper { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 
     table {
         width: 100%;
@@ -170,165 +120,147 @@
         margin-top: 12px;
         min-width: 540px;
     }
-
     th, td {
         padding: 12px;
         text-align: left;
         border-bottom: 1px solid #2f3640;
         white-space: nowrap;
     }
-
-    th {
-        color: #a4b0be;
-    }
+    th { color: #a4b0be; }
 
     @media (max-width: 480px) {
-        body {
-            padding: 10px;
-        }
-
-        h1 {
-            font-size: 1.15rem;
-        }
-
-        .card,
-        .details-section,
-        .history-section {
-            padding: 14px;
-        }
-
-        .dashboard {
-            grid-template-columns: 1fr;
-        }
-
-        .section-heading button {
-            width: 100%;
-        }
+        body { padding: 10px; }
+        h1 { font-size: 1.15rem; }
+        .card, .details-section, .history-section { padding: 14px; }
+        .dashboard { grid-template-columns: 1fr; }
+        .section-heading button { width: 100%; }
     }
 </style>
+</head>
 
-</head><body><header>
+<body>
+<header>
     <div>
         <h1>Robot XAU/USD</h1>
         <div class="muted">Analyse automatique sur H1 — Biquote</div>
-    </div><div id="connection-status" class="status disconnected">
-    Connexion en cours...
-</div>
+    </div>
 
-</header><main><section class="dashboard">
+    <div id="connection-status" class="status disconnected">
+        Connexion en cours...
+    </div>
+</header>
 
-    <div class="card">
-        <h3>Prix actuel de l'or</h3>
-        <p id="current-price" class="value">--.--</p>
+<main>
+    <section class="dashboard">
 
-        <div class="muted">
-            Dernière mise à jour :
-            <span id="last-update">--:--:--</span>
+        <div class="card">
+            <h3>Prix actuel de l'or</h3>
+            <p id="current-price" class="value">--.--</p>
+            <div class="muted">
+                Dernière mise à jour :
+                <span id="last-update">--:--:--</span>
+            </div>
         </div>
-    </div>
 
-    <div class="card">
-        <h3>Tendance du marché H1</h3>
-        <p id="market-tendance" class="value">Analyse...</p>
-
-        <div class="muted">
-            Dernière analyse :
-            <span id="last-analysis">En attente</span>
+        <div class="card">
+            <h3>Tendance du marché H1</h3>
+            <p id="market-tendance" class="value">Analyse...</p>
+            <div class="muted">
+                Dernière analyse :
+                <span id="last-analysis">En attente</span>
+            </div>
         </div>
-    </div>
 
-    <div class="card highlight">
-        <h3>Dernier signal</h3>
+        <div class="card highlight">
+            <h3>Dernier signal</h3>
 
-        <p>
-            <span id="signal-type" class="badge none">
-                AUCUN SIGNAL
-            </span>
-        </p>
-
-        <p>Entrée : <strong id="signal-entry">--</strong></p>
-        <p>Stop Loss : <strong id="signal-sl">--</strong></p>
-        <p>Take Profit : <strong id="signal-tp">--</strong></p>
-        <p>Ratio risque/rendement : <strong id="signal-rr">--</strong></p>
-        <p>Conditions : <strong id="signal-conf">--</strong></p>
-        <p>Heure du signal : <strong id="signal-time">--</strong></p>
-    </div>
-
-</section>
-
-<section class="indicators">
-
-    <div class="indicator">
-        EMA 50
-        <span id="ema50">--</span>
-    </div>
-
-    <div class="indicator">
-        EMA 200
-        <span id="ema200">--</span>
-        <small class="muted">
-            * Provisoire si moins de 200 bougies
-        </small>
-    </div>
-
-    <div class="indicator">
-        RSI 14
-        <span id="rsi">--</span>
-    </div>
-
-    <div class="indicator">
-        ATR 14
-        <span id="atr">--</span>
-    </div>
-
-</section>
-
-<section class="details-section">
-    <h3>Justification du signal</h3>
-
-    <p id="signal-reason">
-        Chargement des données de marché...
-    </p>
-</section>
-
-<section class="details-section">
-    <div class="section-heading">
-        <div>
-            <h3>Analyse du marché</h3>
-
-            <p class="muted">
-                Prix actualisé toutes les 15 secondes.
-                Analyse automatique toutes les 60 secondes.
+            <p>
+                <span id="signal-type" class="badge none">AUCUN SIGNAL</span>
             </p>
+
+            <p>Entrée : <strong id="signal-entry">--</strong></p>
+            <p>Stop Loss : <strong id="signal-sl">--</strong></p>
+            <p>Take Profit : <strong id="signal-tp">--</strong></p>
+            <p>Ratio risque/rendement : <strong id="signal-rr">--</strong></p>
+            <p>Conditions : <strong id="signal-conf">--</strong></p>
+            <p>Heure du signal : <strong id="signal-time">--</strong></p>
         </div>
 
-        <button id="refresh-button" type="button">
-            Actualiser
-        </button>
-    </div>
-</section>
+    </section>
 
-<section class="history-section">
-    <h3>Historique des signaux</h3>
+    <section class="indicators">
+        <div class="indicator">
+            EMA 50
+            <span id="ema50">--</span>
+        </div>
 
-    <div class="table-wrapper">
-        <table id="history-table">
-            <thead>
-                <tr>
-                    <th>Heure</th>
-                    <th>Type</th>
-                    <th>Entrée</th>
-                    <th>SL / TP</th>
-                    <th>Tendance</th>
-                </tr>
-            </thead>
+        <div class="indicator">
+            EMA 200
+            <span id="ema200">--</span>
+            <small class="muted">* Provisoire si moins de 200 bougies</small>
+        </div>
 
-            <tbody></tbody>
-        </table>
-    </div>
-</section>
+        <div class="indicator">
+            RSI 14
+            <span id="rsi">--</span>
+        </div>
 
+        <div class="indicator">
+            ATR 14
+            <span id="atr">--</span>
+        </div>
+    </section>
+
+    <section class="details-section">
+        <h3>Justification du signal</h3>
+        <p id="signal-reason">Chargement des données de marché...</p>
+    </section>
+
+    <section class="details-section">
+        <div class="section-heading">
+            <div>
+                <h3>Analyse du marché</h3>
+                <p class="muted">
+                    Prix actualisé toutes les 15 secondes.
+                    Analyse automatique toutes les 60 secondes.
+                </p>
+            </div>
+
+            <button id="refresh-button" type="button">Actualiser</button>
+        </div>
+    </section>
+
+    <section class="history-section">
+        <h3>Historique des signaux</h3>
+
+        <div class="table-wrapper">
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>Heure</th>
+                        <th>Type</th>
+                        <th>Entrée</th>
+                        <th>SL / TP</th>
+                        <th>Tendance</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+    </section>
 </main>
-<script src="app.js?v=6"></script>
+
+<script>
+    // Affiche toute erreur JavaScript directement dans la page
+    window.onerror = function (msg, src, line) {
+        var r = document.getElementById("signal-reason");
+        if (r) r.textContent = "Erreur JS : " + msg + " (ligne " + line + ")";
+    };
+    window.addEventListener("unhandledrejection", function (e) {
+        var r = document.getElementById("signal-reason");
+        if (r) r.textContent = "Erreur : " + (e.reason && e.reason.message ? e.reason.message : e.reason);
+    });
+</script>
+<script src="app.js?v=8"></script>
 </body>
 </html>
