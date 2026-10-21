@@ -1,0 +1,69 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Robot d'Analyse XAU/USD - Deriv</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+<body>
+    <header>
+        <h1>Robot d'Analyse XAU/USD (Deriv)</h1>
+        <div id="connection-status" class="status disconnected">Connexion en cours...</div>
+    </header>
+
+    <main>
+        <!-- Tableau de bord principal -->
+        <section class="dashboard">
+            <div class="card">
+                <h3>Prix Actuel (XAU/USD)</h3>
+                <p id="current-price" class="value">--.--</p>
+                <span class="update-time">Mis à jour à : <span id="last-update">--:--:--</span></span>
+            </div>
+
+            <div class="card">
+                <h3>Tendance du Marché</h3>
+                <p id="market-tendance" class="value neutral">Analyse...</p>
+            </div>
+
+            <div class="card highlight">
+                <h3>Dernier Signal</h3>
+                <div id="signal-display">
+                    <p id="signal-type" class="badge none">AUCUN SIGNAL</p>
+                    <p><strong>Entrée :</strong> <span id="signal-entry">--</span></p>
+                    <p><strong>Stop Loss :</strong> <span id="signal-sl">--</span></p>
+                    <p><strong>Take Profit :</strong> <span id="signal-tp">--</span></p>
+                    <p><strong>Confiance :</strong> <span id="signal-conf">--</span></p>
+                </div>
+            </div>
+        </section>
+
+        <!-- Justification et Détails -->
+        <section class="details-section">
+            <h3>Justification du Signal</h3>
+            <p id="signal-reason">En attente de conditions favorables...</p>
+        </section>
+
+        <!-- Historique des signaux -->
+        <section class="history-section">
+            <h3>Historique des Signaux</h3>
+            <table id="history-table">
+                <thead>
+                    <tr>
+                        <th>Heure</th>
+                        <th>Type</th>
+                        <th>Prix Entrée</th>
+                        <th>SL / TP</th>
+                        <th>Tendance</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <!-- Les signaux s'ajouteront ici dynamiquement -->
+                </tbody>
+            </table>
+        </section>
+    </main>
+
+    <script src="app.js"></script>
+</body>
+</html>
