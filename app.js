@@ -76,14 +76,21 @@ second: "2-digit"
 }
 
 function setConnection(connected, message) {
+if (!el.connection) return;
+
 el.connection.textContent = message;
-el.connection.className =
-connected ? "status connected" : "status disconnected";
+el.connection.className = connected
+    ? "status connected"
+    : "status disconnected";
+
 }
 
 function setSignalBadge(type, text) {
+if (!el.signalType) return;
+
 el.signalType.textContent = text;
 el.signalType.className = "badge " + type;
+
 }
 
 function getNumber(value) {
@@ -105,13 +112,16 @@ return null;
 // ============================================
 
 async function fetchPrice() {
-const response = await fetch(
-"${API_URL}/${SYMBOL}?allowStale=false",
-{ cache: "no-store" }
-);
+const url = "${API_URL}/${SYMBOL}?allowStale=false";
+
+const response = await fetch(url, {
+    cache: "no-store"
+});
 
 if (!response.ok) {
-    throw new Error("Impossible de récupérer le prix.");
+    throw new Error(
+        `Erreur HTTP ${response.status} lors de la récupération du prix.`
+    );
 }
 
 const data = await response.json();
@@ -119,12 +129,18 @@ const data = await response.json();
 const price = getNumber(data.mid);
 
 if (price === null || price <= 0) {
-    throw new Error("Prix reçu invalide.");
+    throw new Error("Le prix reçu est invalide.");
 }
 
 currentPrice = price;
-el.price.textContent = formatPrice(price);
-el.lastUpdate.textContent = formatTime();
+
+if (el.price) {
+    el.price.textContent = formatPrice(price);
+}
+
+if (el.lastUpdate) {
+    el.lastUpdate.textContent = formatTime();
+}
 
 setConnection(true, "Données reçues");
 
@@ -144,13 +160,23 @@ raw.datetime ??
 raw.date ??
 raw.t;
 
-let time = typeof timeValue === "number"
-    ? timeValue
-    : Date.parse(timeValue);
+let time;
+
+if (typeof timeValue === "number") {
+    time = timeValue;
+} else if (typeof timeValue === "string") {
+    const numericTime = Number(timeValue);
+
+    time = Number.isFinite(numericTime) && timeValue.trim() !== ""
+        ? numericTime
+        : Date.parse(timeValue);
+} else {
+    return null;
+}
 
 if (!Number.isFinite(time)) return null;
 
-// Conversion éventuelle des secondes en millisecondes.
+// Conversion des secondes en millisecondes si nécessaire.
 if (time < 100000000000) {
     time *= 1000;
 }
@@ -170,7 +196,13 @@ if (
     return null;
 }
 
-return { time, open, high, low, close };
+return {
+    time,
+    open,
+    high,
+    low,
+    close
+};
 
 }
 
@@ -178,10 +210,14 @@ async function fetchCandles() {
 const url =
 "${API_URL}/${SYMBOL}/ohlc?interval=1h&limit=${CANDLE_COUNT}";
 
-const response = await fetch(url, { cache: "no-store" });
+const response = await fetch(url, {
+    cache: "no-store"
+});
 
 if (!response.ok) {
-    throw new Error("Impossible de récupérer les bougies H1.");
+    throw new Error(
+        `Erreur HTTP ${response.status} lors de la récupération des bougies H1.`
+    );
 }
 
 const data = await response.json();
@@ -195,7 +231,9 @@ const rawBars = Array.isArray(data)
             : [];
 
 if (rawBars.length === 0) {
-    throw new Error("Aucune bougie reçue pour H1.");
+    throw new Error(
+        "Aucune bougie reçue. Vérifie le format des données Biquote."
+    );
 }
 
 const now = Date.now();
@@ -208,7 +246,7 @@ for (const raw of rawBars) {
 
     if (!candle) continue;
 
-    // Ne garder que les bougies H1 clôturées.
+    // Garder uniquement les bougies H1 clôturées.
     if (candle.time + candleDuration > now) continue;
 
     unique.set(candle.time, candle);
@@ -226,8 +264,6 @@ return Array.from(unique.values())
 function calculateEMA(values, period) {
 if (!values.length) return null;
 
-// Une EMA provisoire est autorisée si l'historique
-// est plus court que la période demandée.
 const seedLength = Math.min(values.length, period);
 
 let ema = values
@@ -257,8 +293,11 @@ let losses = 0;
 for (let i = 1; i <= period; i++) {
     const change = values[i] - values[i - 1];
 
-    if (change > 0) gains += change;
-    else losses += Math.abs(change);
+    if (change > 0) {
+        gains += change;
+    } else {
+        losses += Math.abs(change);
+    }
 }
 
 let averageGain = gains / period;
@@ -314,7 +353,8 @@ let atr = trueRanges
     .reduce((sum, value) => sum + value, 0) / period;
 
 for (let i = period; i < trueRanges.length; i++) {
-    atr = (atr * (period - 1) + trueRanges[i]) / period;
+    atr =
+        (atr * (period - 1) + trueRanges[i]) / period;
 }
 
 return atr;
@@ -326,16 +366,24 @@ return atr;
 // ============================================
 
 function displayIndicators(ema50, ema200, rsi, atr, candleCount) {
+if (el.ema50) {
 el.ema50.textContent = formatPrice(ema50);
+}
 
-el.ema200.textContent =
-    formatPrice(ema200) +
-    (candleCount < EMA_SLOW ? " *" : "");
+if (el.ema200) {
+    el.ema200.textContent =
+        formatPrice(ema200) +
+        (candleCount < EMA_SLOW ? " *" : "");
+}
 
-el.rsi.textContent =
-    Number.isFinite(rsi) ? rsi.toFixed(2) : "--";
+if (el.rsi) {
+    el.rsi.textContent =
+        Number.isFinite(rsi) ? rsi.toFixed(2) : "--";
+}
 
-el.atr.textContent = formatPrice(atr);
+if (el.atr) {
+    el.atr.textContent = formatPrice(atr);
+}
 
 }
 
@@ -356,6 +404,8 @@ renderHistory();
 }
 
 function renderHistory() {
+if (!el.historyTable) return;
+
 el.historyTable.replaceChildren();
 
 for (const signal of historySignals) {
@@ -381,7 +431,24 @@ for (const signal of historySignals) {
 }
 
 // ============================================
-// 11. ANALYSE DU MARCHÉ
+// 11. RÉINITIALISATION DU SIGNAL
+// ============================================
+
+function clearSignal(message = "Aucun signal pour le moment.") {
+setSignalBadge("none", "AUCUN SIGNAL");
+
+if (el.signalEntry) el.signalEntry.textContent = "--";
+if (el.signalSL) el.signalSL.textContent = "--";
+if (el.signalTP) el.signalTP.textContent = "--";
+if (el.signalRR) el.signalRR.textContent = "--";
+if (el.signalConf) el.signalConf.textContent = "--";
+if (el.signalTime) el.signalTime.textContent = "--";
+if (el.signalReason) el.signalReason.textContent = message;
+
+}
+
+// ============================================
+// 12. ANALYSE DU MARCHÉ
 // ============================================
 
 async function analyzeMarket() {
@@ -394,7 +461,10 @@ if (el.refreshButton) {
 }
 
 try {
-    el.signalReason.textContent = "Récupération des données H1...";
+    if (el.signalReason) {
+        el.signalReason.textContent =
+            "Récupération des données H1...";
+    }
 
     const results = await Promise.allSettled([
         fetchPrice(),
@@ -412,24 +482,24 @@ try {
     const candles = results[1].value;
 
     if (candles.length < MIN_CANDLES_FOR_SIGNAL) {
-        el.trend.textContent = "Historique insuffisant";
+        if (el.trend) {
+            el.trend.textContent = "Historique insuffisant";
+        }
 
-        el.signalReason.textContent =
+        if (el.ema50) el.ema50.textContent = "--";
+        if (el.ema200) el.ema200.textContent = "--";
+        if (el.rsi) el.rsi.textContent = "--";
+        if (el.atr) el.atr.textContent = "--";
+
+        clearSignal(
             `Biquote fournit seulement ${candles.length} bougies H1 clôturées. ` +
-            `Il faut au moins ${MIN_CANDLES_FOR_SIGNAL} bougies pour effectuer ` +
-            "une analyse exploitable. Aucun signal fiable ne sera généré.";
+            `Il en faut au moins ${MIN_CANDLES_FOR_SIGNAL} pour effectuer ` +
+            "une analyse exploitable."
+        );
 
-        el.ema50.textContent = "--";
-        el.ema200.textContent = "--";
-        el.rsi.textContent = "--";
-        el.atr.textContent = "--";
-
-        setSignalBadge("none", "AUCUN SIGNAL");
-        el.signalEntry.textContent = "--";
-        el.signalSL.textContent = "--";
-        el.signalTP.textContent = "--";
-        el.signalRR.textContent = "--";
-        el.signalConf.textContent = "--";
+        if (el.lastAnalysis) {
+            el.lastAnalysis.textContent = formatTime();
+        }
 
         return;
     }
@@ -450,9 +520,14 @@ try {
         atr === null ||
         atr <= 0
     ) {
-        el.trend.textContent = "Analyse indisponible";
-        el.signalReason.textContent =
-            "Les données reçues ne permettent pas de calculer tous les indicateurs.";
+        if (el.trend) {
+            el.trend.textContent = "Analyse indisponible";
+        }
+
+        clearSignal(
+            "Les données reçues ne permettent pas de calculer tous les indicateurs."
+        );
+
         return;
     }
 
@@ -469,7 +544,9 @@ try {
         trend = "BAISSIÈRE";
     }
 
-    el.trend.textContent = trend;
+    if (el.trend) {
+        el.trend.textContent = trend;
+    }
 
     const bullishCandle = last.close > last.open;
     const bearishCandle = last.close < last.open;
@@ -528,24 +605,41 @@ try {
             signalType === "BUY" ? "ACHAT" : "VENTE"
         );
 
-        el.signalEntry.textContent = formatPrice(entry);
-        el.signalSL.textContent = formatPrice(sl);
-        el.signalTP.textContent = formatPrice(tp);
-        el.signalRR.textContent = "1:2";
+        if (el.signalEntry) {
+            el.signalEntry.textContent = formatPrice(entry);
+        }
 
-        el.signalConf.textContent = warnings.length
-            ? "Conditions réunies — prudence"
-            : "Conditions techniques réunies";
+        if (el.signalSL) {
+            el.signalSL.textContent = formatPrice(sl);
+        }
 
-        el.signalTime.textContent = formatTime();
+        if (el.signalTP) {
+            el.signalTP.textContent = formatPrice(tp);
+        }
 
-        el.signalReason.textContent =
-            `${signalType === "BUY" ? "Signal d'achat" : "Signal de vente"} détecté sur H1. ` +
-            `Tendance : ${trend}. EMA 50 : ${formatPrice(ema50)}. ` +
-            `EMA 200 : ${formatPrice(ema200)}. RSI : ${rsi.toFixed(2)}. ` +
-            `ATR : ${formatPrice(atr)}. ` +
-            (warnings.length ? warnings.join(". ") + ". " : "") +
-            "Le signal est indicatif et ne garantit pas un gain.";
+        if (el.signalRR) {
+            el.signalRR.textContent = "1:2";
+        }
+
+        if (el.signalConf) {
+            el.signalConf.textContent = warnings.length
+                ? "Conditions réunies — prudence"
+                : "Conditions techniques réunies";
+        }
+
+        if (el.signalTime) {
+            el.signalTime.textContent = formatTime();
+        }
+
+        if (el.signalReason) {
+            el.signalReason.textContent =
+                `${signalType === "BUY" ? "Signal d'achat" : "Signal de vente"} détecté sur H1. ` +
+                `Tendance : ${trend}. EMA 50 : ${formatPrice(ema50)}. ` +
+                `EMA 200 : ${formatPrice(ema200)}. RSI : ${rsi.toFixed(2)}. ` +
+                `ATR : ${formatPrice(atr)}. ` +
+                (warnings.length ? warnings.join(". ") + ". " : "") +
+                "Signal indicatif : aucun gain n'est garanti.";
+        }
 
         if (signalKey !== lastSignalKey) {
             lastSignalKey = signalKey;
@@ -561,35 +655,38 @@ try {
             });
         }
     } else {
-        setSignalBadge("none", "AUCUN SIGNAL");
-
-        el.signalEntry.textContent = "--";
-        el.signalSL.textContent = "--";
-        el.signalTP.textContent = "--";
-        el.signalRR.textContent = "--";
-        el.signalConf.textContent = "Conditions non réunies";
-        el.signalTime.textContent = "--";
-
-        el.signalReason.textContent =
+        clearSignal(
             `Aucun signal H1 pour le moment. Tendance : ${trend}. ` +
-            `EMA 50 : ${formatPrice(ema50)}. EMA 200 : ${formatPrice(ema200)}. ` +
+            `EMA 50 : ${formatPrice(ema50)}. ` +
+            `EMA 200 : ${formatPrice(ema200)}. ` +
             `RSI : ${rsi.toFixed(2)}. ATR : ${formatPrice(atr)}. ` +
             (warnings.length ? warnings.join(". ") + ". " : "") +
-            "Le robot attend que les conditions d'entrée soient réunies.";
+            "Le robot attend que les conditions d'entrée soient réunies."
+        );
+
+        if (el.signalConf) {
+            el.signalConf.textContent = "Conditions non réunies";
+        }
     }
 
-    el.lastAnalysis.textContent = formatTime();
+    if (el.lastAnalysis) {
+        el.lastAnalysis.textContent = formatTime();
+    }
 
 } catch (error) {
     console.error("Erreur d'analyse :", error);
 
     setConnection(false, "Erreur de connexion");
 
-    el.signalReason.textContent =
-        "Erreur lors de la récupération des données. " +
-        "Vérifie ta connexion Internet et la disponibilité de l'API Biquote.";
+    if (el.signalReason) {
+        el.signalReason.textContent =
+            `Erreur : ${error.message || "récupération des données impossible"}. ` +
+            "Si les liens API fonctionnent dans le navigateur, le problème peut venir de CORS.";
+    }
 
-    el.trend.textContent = "Indisponible";
+    if (el.trend) {
+        el.trend.textContent = "Indisponible";
+    }
 
 } finally {
     analysisRunning = false;
@@ -602,15 +699,17 @@ try {
 }
 
 // ============================================
-// 12. DÉMARRAGE AUTOMATIQUE
+// 13. DÉMARRAGE AUTOMATIQUE
 // ============================================
 
 if (el.refreshButton) {
 el.refreshButton.addEventListener("click", analyzeMarket);
 }
 
+// Première analyse automatique.
 analyzeMarket();
 
+// Actualisation du prix toutes les 15 secondes.
 setInterval(async () => {
 try {
 await fetchPrice();
@@ -620,4 +719,5 @@ setConnection(false, "Connexion interrompue");
 }
 }, PRICE_REFRESH_MS);
 
+// Nouvelle analyse automatique toutes les 60 secondes.
 setInterval(analyzeMarket, ANALYSIS_REFRESH_MS);
