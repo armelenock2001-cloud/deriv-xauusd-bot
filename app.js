@@ -4,10 +4,11 @@
 // 1. CONFIGURATION
 // ============================================
 
-const API_URL = "https://biquote.io/api";
-const SYMBOL = "XAUUSD";
-const TIMEFRAME = "1h";
-const CANDLE_COUNT = 500;
+const PRICE_URL =
+"https://biquote.io/api/XAUUSD?allowStale=false";
+
+const CANDLES_URL =
+"https://biquote.io/api/XAUUSD/ohlc?interval=1h&limit=500";
 
 const EMA_FAST = 50;
 const EMA_SLOW = 200;
@@ -107,20 +108,25 @@ return null;
 
 }
 
+function showError(message) {
+if (el.signalReason) {
+el.signalReason.textContent = message;
+}
+}
+
 // ============================================
-// 4. RÉCUPÉRATION DU PRIX
+// 4. RÉCUPÉRATION DU PRIX XAU/USD
 // ============================================
 
 async function fetchPrice() {
-const url = "${API_URL}/${SYMBOL}?allowStale=false";
-
-const response = await fetch(url, {
-    cache: "no-store"
+const response = await fetch(PRICE_URL, {
+method: "GET",
+cache: "no-store"
 });
 
 if (!response.ok) {
     throw new Error(
-        `Erreur HTTP ${response.status} lors de la récupération du prix.`
+        `Erreur HTTP ${response.status} pendant la récupération du prix.`
     );
 }
 
@@ -129,7 +135,9 @@ const data = await response.json();
 const price = getNumber(data.mid);
 
 if (price === null || price <= 0) {
-    throw new Error("Le prix reçu est invalide.");
+    throw new Error(
+        "Le prix reçu est invalide ou absent dans la réponse de Biquote."
+    );
 }
 
 currentPrice = price;
@@ -149,7 +157,7 @@ return data;
 }
 
 // ============================================
-// 5. RÉCUPÉRATION DES BOUGIES H1
+// 5. NORMALISATION DES BOUGIES
 // ============================================
 
 function normalizeCandle(raw) {
@@ -167,16 +175,19 @@ if (typeof timeValue === "number") {
 } else if (typeof timeValue === "string") {
     const numericTime = Number(timeValue);
 
-    time = Number.isFinite(numericTime) && timeValue.trim() !== ""
+    time = timeValue.trim() !== "" &&
+        Number.isFinite(numericTime)
         ? numericTime
         : Date.parse(timeValue);
 } else {
     return null;
 }
 
-if (!Number.isFinite(time)) return null;
+if (!Number.isFinite(time)) {
+    return null;
+}
 
-// Conversion des secondes en millisecondes si nécessaire.
+// Conversion des timestamps en secondes vers millisecondes.
 if (time < 100000000000) {
     time *= 1000;
 }
@@ -206,17 +217,19 @@ return {
 
 }
 
-async function fetchCandles() {
-const url =
-"${API_URL}/${SYMBOL}/ohlc?interval=1h&limit=${CANDLE_COUNT}";
+// ============================================
+// 6. RÉCUPÉRATION DES BOUGIES H1
+// ============================================
 
-const response = await fetch(url, {
-    cache: "no-store"
+async function fetchCandles() {
+const response = await fetch(CANDLES_URL, {
+method: "GET",
+cache: "no-store"
 });
 
 if (!response.ok) {
     throw new Error(
-        `Erreur HTTP ${response.status} lors de la récupération des bougies H1.`
+        `Erreur HTTP ${response.status} pendant la récupération des bougies H1.`
     );
 }
 
@@ -232,13 +245,12 @@ const rawBars = Array.isArray(data)
 
 if (rawBars.length === 0) {
     throw new Error(
-        "Aucune bougie reçue. Vérifie le format des données Biquote."
+        "Biquote n'a retourné aucune bougie H1 reconnue."
     );
 }
 
 const now = Date.now();
 const candleDuration = 60 * 60 * 1000;
-
 const unique = new Map();
 
 for (const raw of rawBars) {
@@ -246,7 +258,7 @@ for (const raw of rawBars) {
 
     if (!candle) continue;
 
-    // Garder uniquement les bougies H1 clôturées.
+    // Ignorer les bougies encore en formation.
     if (candle.time + candleDuration > now) continue;
 
     unique.set(candle.time, candle);
@@ -258,7 +270,7 @@ return Array.from(unique.values())
 }
 
 // ============================================
-// 6. CALCUL EMA
+// 7. CALCUL EMA
 // ============================================
 
 function calculateEMA(values, period) {
@@ -281,7 +293,7 @@ return ema;
 }
 
 // ============================================
-// 7. CALCUL RSI
+// 8. CALCUL RSI
 // ============================================
 
 function calculateRSI(values, period) {
@@ -325,7 +337,7 @@ return 100 - 100 / (1 + rs);
 }
 
 // ============================================
-// 8. CALCUL ATR
+// 9. CALCUL ATR
 // ============================================
 
 function calculateATR(candles, period) {
@@ -362,7 +374,7 @@ return atr;
 }
 
 // ============================================
-// 9. AFFICHAGE DES INDICATEURS
+// 10. AFFICHAGE DES INDICATEURS
 // ============================================
 
 function displayIndicators(ema50, ema200, rsi, atr, candleCount) {
@@ -388,7 +400,7 @@ if (el.atr) {
 }
 
 // ============================================
-// 10. HISTORIQUE DES SIGNAUX
+// 11. HISTORIQUE DES SIGNAUX
 // ============================================
 
 function addSignalToHistory(signal) {
@@ -431,10 +443,10 @@ for (const signal of historySignals) {
 }
 
 // ============================================
-// 11. RÉINITIALISATION DU SIGNAL
+// 12. AFFICHAGE SANS SIGNAL
 // ============================================
 
-function clearSignal(message = "Aucun signal pour le moment.") {
+function clearSignal(message) {
 setSignalBadge("none", "AUCUN SIGNAL");
 
 if (el.signalEntry) el.signalEntry.textContent = "--";
@@ -443,12 +455,13 @@ if (el.signalTP) el.signalTP.textContent = "--";
 if (el.signalRR) el.signalRR.textContent = "--";
 if (el.signalConf) el.signalConf.textContent = "--";
 if (el.signalTime) el.signalTime.textContent = "--";
-if (el.signalReason) el.signalReason.textContent = message;
+
+showError(message);
 
 }
 
 // ============================================
-// 12. ANALYSE DU MARCHÉ
+// 13. ANALYSE AUTOMATIQUE DU MARCHÉ
 // ============================================
 
 async function analyzeMarket() {
@@ -461,10 +474,7 @@ if (el.refreshButton) {
 }
 
 try {
-    if (el.signalReason) {
-        el.signalReason.textContent =
-            "Récupération des données H1...";
-    }
+    showError("Récupération des données H1...");
 
     const results = await Promise.allSettled([
         fetchPrice(),
@@ -492,9 +502,8 @@ try {
         if (el.atr) el.atr.textContent = "--";
 
         clearSignal(
-            `Biquote fournit seulement ${candles.length} bougies H1 clôturées. ` +
-            `Il en faut au moins ${MIN_CANDLES_FOR_SIGNAL} pour effectuer ` +
-            "une analyse exploitable."
+            `Seulement ${candles.length} bougies H1 clôturées ont été reçues. ` +
+            `Il en faut au moins ${MIN_CANDLES_FOR_SIGNAL} pour analyser le marché.`
         );
 
         if (el.lastAnalysis) {
@@ -511,7 +520,13 @@ try {
     const rsi = calculateRSI(closes, RSI_PERIOD);
     const atr = calculateATR(candles, ATR_PERIOD);
 
-    displayIndicators(ema50, ema200, rsi, atr, candles.length);
+    displayIndicators(
+        ema50,
+        ema200,
+        rsi,
+        atr,
+        candles.length
+    );
 
     if (
         ema50 === null ||
@@ -571,17 +586,18 @@ try {
 
     if (provisionalEMA) {
         warnings.push(
-            `EMA 200 provisoire : ${candles.length} bougies disponibles, 200 recommandées`
+            `EMA 200 provisoire : ${candles.length} bougies disponibles`
         );
     }
 
     if (candles.length < FULL_HISTORY_REQUIRED) {
         warnings.push(
-            `Historique limité (${candles.length} bougies H1)`
+            `Historique limité : ${candles.length} bougies H1`
         );
     }
 
     const entry = currentPrice;
+
     let signalType = "NONE";
     let sl = null;
     let tp = null;
@@ -631,15 +647,16 @@ try {
             el.signalTime.textContent = formatTime();
         }
 
-        if (el.signalReason) {
-            el.signalReason.textContent =
-                `${signalType === "BUY" ? "Signal d'achat" : "Signal de vente"} détecté sur H1. ` +
-                `Tendance : ${trend}. EMA 50 : ${formatPrice(ema50)}. ` +
-                `EMA 200 : ${formatPrice(ema200)}. RSI : ${rsi.toFixed(2)}. ` +
-                `ATR : ${formatPrice(atr)}. ` +
-                (warnings.length ? warnings.join(". ") + ". " : "") +
-                "Signal indicatif : aucun gain n'est garanti.";
-        }
+        showError(
+            `${signalType === "BUY" ? "Signal d'achat" : "Signal de vente"} H1 détecté. ` +
+            `Tendance : ${trend}. ` +
+            `EMA 50 : ${formatPrice(ema50)}. ` +
+            `EMA 200 : ${formatPrice(ema200)}. ` +
+            `RSI : ${rsi.toFixed(2)}. ` +
+            `ATR : ${formatPrice(atr)}. ` +
+            (warnings.length ? warnings.join(". ") + ". " : "") +
+            "Signal indicatif : aucun bénéfice n'est garanti."
+        );
 
         if (signalKey !== lastSignalKey) {
             lastSignalKey = signalKey;
@@ -659,7 +676,8 @@ try {
             `Aucun signal H1 pour le moment. Tendance : ${trend}. ` +
             `EMA 50 : ${formatPrice(ema50)}. ` +
             `EMA 200 : ${formatPrice(ema200)}. ` +
-            `RSI : ${rsi.toFixed(2)}. ATR : ${formatPrice(atr)}. ` +
+            `RSI : ${rsi.toFixed(2)}. ` +
+            `ATR : ${formatPrice(atr)}. ` +
             (warnings.length ? warnings.join(". ") + ". " : "") +
             "Le robot attend que les conditions d'entrée soient réunies."
         );
@@ -678,15 +696,14 @@ try {
 
     setConnection(false, "Erreur de connexion");
 
-    if (el.signalReason) {
-        el.signalReason.textContent =
-            `Erreur : ${error.message || "récupération des données impossible"}. ` +
-            "Si les liens API fonctionnent dans le navigateur, le problème peut venir de CORS.";
-    }
-
     if (el.trend) {
         el.trend.textContent = "Indisponible";
     }
+
+    showError(
+        `Erreur : ${error.message || "récupération des données impossible"}. ` +
+        "Vérifie les URL et la disponibilité de l'API."
+    );
 
 } finally {
     analysisRunning = false;
@@ -699,14 +716,14 @@ try {
 }
 
 // ============================================
-// 13. DÉMARRAGE AUTOMATIQUE
+// 14. DÉMARRAGE AUTOMATIQUE
 // ============================================
 
 if (el.refreshButton) {
 el.refreshButton.addEventListener("click", analyzeMarket);
 }
 
-// Première analyse automatique.
+// Première analyse au chargement.
 analyzeMarket();
 
 // Actualisation du prix toutes les 15 secondes.
@@ -719,5 +736,5 @@ setConnection(false, "Connexion interrompue");
 }
 }, PRICE_REFRESH_MS);
 
-// Nouvelle analyse automatique toutes les 60 secondes.
+// Nouvelle analyse toutes les 60 secondes.
 setInterval(analyzeMarket, ANALYSIS_REFRESH_MS);
