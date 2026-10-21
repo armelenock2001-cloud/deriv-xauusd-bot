@@ -841,3 +841,64 @@ window.addEventListener("beforeunload", function () {
 // ============================================
 // 15. DÉMARRAGE
 // ==============
+const socket = new WebSocket(
+  "wss://ws.derivws.com/websockets/v3?app_id=1089"
+);
+
+socket.onopen = () => {
+  document.body.insertAdjacentHTML(
+    "beforeend",
+    "<p id='deriv-status'>Connecté à Deriv, vérification du prix...</p>"
+  );
+
+  socket.send(JSON.stringify({
+    active_symbols: "brief",
+    product_type: "basic"
+  }));
+};
+
+socket.onmessage = (event) => {
+  const data = JSON.parse(event.data);
+
+  if (data.error) {
+    document.getElementById("deriv-status").textContent =
+      "Erreur Deriv : " + data.error.message;
+    return;
+  }
+
+  if (data.active_symbols) {
+    const gold = data.active_symbols.find(
+      s => s.symbol === "frxXAUUSD" ||
+           s.display_name === "Gold/USD"
+    );
+
+    if (gold) {
+      document.getElementById("deriv-status").textContent =
+        "Symbole trouvé : " + gold.symbol +
+        " — " + gold.display_name;
+
+      socket.send(JSON.stringify({
+        ticks: gold.symbol,
+        subscribe: 1
+      }));
+    } else {
+      document.getElementById("deriv-status").textContent =
+        "Symbole frxXAUUSD introuvable dans cette liste.";
+    }
+  }
+
+  if (data.tick) {
+    document.getElementById("deriv-status").textContent =
+      "Prix Deriv : " + data.tick.quote;
+  }
+};
+
+socket.onerror = () => {
+  const status = document.getElementById("deriv-status");
+  if (status) status.textContent = "Erreur de connexion à Deriv.";
+};
+
+socket.onclose = () => {
+  const status = document.getElementById("deriv-status");
+  if (status) status.textContent = "Connexion à Deriv fermée.";
+};
