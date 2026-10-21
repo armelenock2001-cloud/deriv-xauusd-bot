@@ -229,7 +229,16 @@ function connectDeriv() {
         logStatus("Erreur de connexion à Deriv.");
     };
 
-    ws.onclose = function () {
+    ws.onclose = function (event) {
+  console.log("Code de fermeture :", event.code);
+  console.log("Raison :", event.reason);
+
+  setConnectionStatus(
+    "Déconnecté (code " + event.code + "), reconnexion..."
+  );
+
+  setTimeout(connectDeriv, 5000);
+};
         clearInterval(requestTimer);
 
         requestInProgress = false;
