@@ -3,10 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot XAU/USD — Analyse H4</title>
+
+    <title>Robot d'analyse XAU/USD — H4</title>
 
     <style>
-        * { box-sizing: border-box; }
+        * {
+            box-sizing: border-box;
+        }
 
         body {
             font-family: Arial, sans-serif;
@@ -20,221 +23,306 @@
             display: flex;
             justify-content: space-between;
             align-items: center;
-            gap: 12px;
             flex-wrap: wrap;
+            gap: 12px;
             border-bottom: 2px solid #2f3640;
             padding-bottom: 15px;
             margin-bottom: 20px;
         }
 
-        h1 { font-size: 23px; margin: 0; }
-        h3 { margin-top: 0; }
-
-        .status {
-            padding: 9px 12px;
-            border-radius: 5px;
-            font-size: 13px;
-            font-weight: bold;
-            background: #718093;
+        h1 {
+            font-size: 1.4rem;
         }
 
-        .connected { background: #27ae60; }
-        .disconnected { background: #c0392b; }
+        h1, h2, h3 {
+            margin-top: 0;
+        }
+
+        .status {
+            padding: 8px 12px;
+            border-radius: 5px;
+            font-size: 0.85rem;
+            font-weight: bold;
+        }
+
+        .status.connected {
+            background: #27ae60;
+            color: white;
+        }
+
+        .status.disconnected {
+            background: #c0392b;
+            color: white;
+        }
 
         .dashboard {
             display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
-            gap: 15px;
-            margin-bottom: 18px;
+            grid-template-columns: repeat(
+                auto-fit,
+                minmax(min(100%, 260px), 1fr)
+            );
+            gap: 16px;
+            margin-bottom: 20px;
         }
 
-        .card, .section {
+        .card,
+        .details-section,
+        .history-section {
             background: #1e272e;
             padding: 18px;
-            border-radius: 9px;
-            box-shadow: 0 4px 8px #0003;
-            margin-bottom: 18px;
-        }
-
-        .highlight { border: 1px solid #487eb0; }
-
-        .value {
-            font-size: 26px;
-            font-weight: bold;
-            margin: 12px 0;
+            border-radius: 8px;
+            margin-bottom: 16px;
             overflow-wrap: anywhere;
         }
 
-        .muted { color: #a4b0be; font-size: 13px; }
+        .highlight {
+            border: 1px solid #487eb0;
+        }
 
-        .badge {
-            display: inline-block;
-            padding: 8px 12px;
-            border-radius: 5px;
+        .value {
+            font-size: 1.7rem;
+            font-weight: bold;
+            margin: 12px 0;
+        }
+
+        .indicators {
+            display: grid;
+            grid-template-columns: repeat(
+                auto-fit,
+                minmax(130px, 1fr)
+            );
+            gap: 12px;
+            margin-bottom: 20px;
+        }
+
+        .indicator {
+            background: #1e272e;
+            padding: 15px;
+            border-radius: 8px;
+        }
+
+        .indicator span {
+            display: block;
+            margin-top: 8px;
+            font-size: 1.2rem;
             font-weight: bold;
         }
 
-        .buy { background: #27ae60; color: white; }
-        .sell { background: #c0392b; color: white; }
-        .none { background: #718093; color: white; }
+        .badge {
+            display: inline-block;
+            padding: 7px 12px;
+            border-radius: 4px;
+            font-weight: bold;
+        }
 
-        .metric {
-            display: flex;
-            justify-content: space-between;
-            gap: 12px;
-            padding: 9px 0;
-            border-bottom: 1px solid #2f3640;
+        .badge.buy {
+            background: #27ae60;
+            color: white;
+        }
+
+        .badge.sell {
+            background: #c0392b;
+            color: white;
+        }
+
+        .badge.none {
+            background: #718093;
+            color: white;
         }
 
         button {
             background: #487eb0;
             color: white;
-            border: 0;
-            padding: 11px 16px;
+            border: none;
+            padding: 12px 18px;
             border-radius: 5px;
+            font-size: 1rem;
             font-weight: bold;
             cursor: pointer;
         }
 
-        button:disabled { opacity: .6; }
+        button:disabled {
+            opacity: 0.6;
+        }
 
-        .table-wrap { overflow-x: auto; }
+        .section-heading {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            flex-wrap: wrap;
+            gap: 12px;
+        }
+
+        .muted {
+            color: #a4b0be;
+            font-size: 0.9rem;
+        }
+
+        .table-wrapper {
+            overflow-x: auto;
+        }
 
         table {
             width: 100%;
-            min-width: 650px;
             border-collapse: collapse;
-            font-size: 13px;
+            margin-top: 12px;
+            min-width: 540px;
         }
 
         th, td {
+            padding: 12px;
             text-align: left;
-            padding: 12px 9px;
             border-bottom: 1px solid #2f3640;
         }
 
-        th { color: #a4b0be; }
+        th {
+            color: #a4b0be;
+        }
 
-        .warning {
-            background: #3b3020;
-            color: #f8d794;
-            padding: 12px;
-            border-radius: 6px;
-            line-height: 1.5;
-            font-size: 13px;
+        @media (max-width: 480px) {
+            body {
+                padding: 10px;
+            }
+
+            h1 {
+                font-size: 1.15rem;
+            }
+
+            .card,
+            .details-section,
+            .history-section {
+                padding: 14px;
+            }
         }
     </style>
 </head>
 
 <body>
+
 <header>
     <div>
         <h1>Robot XAU/USD</h1>
-        <p class="muted">Analyse technique sur bougies de 4 heures (H4)</p>
+        <div class="muted">Analyse automatique sur H4 — Biquote</div>
     </div>
+
     <div id="connection-status" class="status disconnected">
         Connexion en cours...
     </div>
 </header>
 
 <main>
+
     <section class="dashboard">
+
         <div class="card">
-            <h3>Prix actuel XAU/USD</h3>
-            <div id="current-price" class="value">--</div>
-            <div class="muted">Dernière cotation : <span id="last-update">--</span></div>
+            <h3>Prix actuel de l'or</h3>
+            <p id="current-price" class="value">--.--</p>
+            <div class="muted">
+                Dernière mise à jour :
+                <span id="last-update">--:--:--</span>
+            </div>
         </div>
 
         <div class="card">
-            <h3>Tendance H4</h3>
-            <div id="market-tendance" class="value">Analyse...</div>
-            <div class="muted">EMA 50 et EMA 200</div>
-        </div>
-
-        <div class="card">
-            <h3>Indicateurs H4</h3>
-            <div class="metric">
-                <span>RSI 14</span><strong id="rsi">--</strong>
-            </div>
-            <div class="metric">
-                <span>EMA 50</span><strong id="ema50">--</strong>
-            </div>
-            <div class="metric">
-                <span>EMA 200</span><strong id="ema200">--</strong>
-            </div>
-            <div class="metric">
-                <span>ATR 14</span><strong id="atr">--</strong>
+            <h3>Tendance du marché H4</h3>
+            <p id="market-tendance" class="value">Analyse...</p>
+            <div class="muted">
+                Dernière analyse :
+                <span id="last-analysis">En attente</span>
             </div>
         </div>
 
         <div class="card highlight">
-            <h3>Dernier signal H4</h3>
-            <p><span id="signal-type" class="badge none">EN ATTENTE</span></p>
+            <h3>Dernier signal</h3>
 
-            <div class="metric">
-                <span>Entrée indicative</span>
-                <strong id="signal-entry">--</strong>
+            <p>
+                <span id="signal-type" class="badge none">
+                    AUCUN SIGNAL
+                </span>
+            </p>
+
+            <p>Entrée : <strong id="signal-entry">--</strong></p>
+            <p>Stop Loss : <strong id="signal-sl">--</strong></p>
+            <p>Take Profit : <strong id="signal-tp">--</strong></p>
+            <p>Ratio risque/rendement : <strong id="signal-rr">--</strong></p>
+            <p>Conditions : <strong id="signal-conf">--</strong></p>
+            <p>Heure du signal : <strong id="signal-time">--</strong></p>
+        </div>
+
+    </section>
+
+    <section class="indicators">
+
+        <div class="indicator">
+            EMA 50
+            <span id="ema50">--</span>
+        </div>
+
+        <div class="indicator">
+            EMA 200
+            <span id="ema200">--</span>
+        </div>
+
+        <div class="indicator">
+            RSI 14
+            <span id="rsi">--</span>
+        </div>
+
+        <div class="indicator">
+            ATR 14
+            <span id="atr">--</span>
+        </div>
+
+    </section>
+
+    <section class="details-section">
+        <h3>Justification du signal</h3>
+
+        <p id="signal-reason">
+            Chargement des données de marché...
+        </p>
+    </section>
+
+    <section class="details-section">
+        <div class="section-heading">
+            <div>
+                <h3>Analyse du marché</h3>
+                <p class="muted">
+                    Les données sont actualisées automatiquement.
+                </p>
             </div>
-            <div class="metric">
-                <span>Stop Loss</span>
-                <strong id="signal-sl">--</strong>
-            </div>
-            <div class="metric">
-                <span>Take Profit</span>
-                <strong id="signal-tp">--</strong>
-            </div>
-            <div class="metric">
-                <span>Ratio gain/risque</span>
-                <strong id="signal-rr">--</strong>
-            </div>
-            <div class="metric">
-                <span>Confirmation</span>
-                <strong id="signal-conf">--</strong>
-            </div>
-            <p class="muted" id="signal-time">Aucun signal confirmé.</p>
+
+            <button id="refresh-button" type="button">
+                Actualiser
+            </button>
         </div>
     </section>
 
-    <section class="section">
-        <h3>Analyse du marché</h3>
-        <p id="signal-reason">
-            Récupération des bougies H4 en cours...
-        </p>
-        <p class="muted">
-            Les signaux sont calculés à partir des bougies H4 clôturées.
-            Le prix d'entrée affiché est indicatif.
-        </p>
-        <button id="refresh-button">Actualiser l'analyse</button>
-        <p class="muted" id="last-analysis">Analyse non effectuée.</p>
-    </section>
-
-    <section class="section">
+    <section class="history-section">
         <h3>Historique des signaux</h3>
-        <div class="table-wrap">
+
+        <div class="table-wrapper">
             <table id="history-table">
                 <thead>
                     <tr>
-                        <th>Date</th>
-                        <th>Signal</th>
-                        <th>Entrée indicative</th>
-                        <th>Stop Loss</th>
-                        <th>Take Profit</th>
-                        <th>RSI</th>
+                        <th>Heure</th>
+                        <th>Type</th>
+                        <th>Entrée</th>
+                        <th>SL / TP</th>
+                        <th>Tendance</th>
                     </tr>
                 </thead>
-                <tbody></tbody>
+
+                <tbody>
+                </tbody>
             </table>
         </div>
     </section>
 
-    <div class="warning">
-        <strong>Important :</strong> un signal n'est pas une garantie de gain.
-        Les frais, le spread, le slippage et les mouvements du marché peuvent
-        entraîner des pertes. Teste cette stratégie sur un compte démo avant
-        toute utilisation en argent réel.
-    </div>
 </main>
 
-<script src="./app.js"></script>
+<!-- Charger le fichier JavaScript externe -->
+<script src="app.js"></script>
+
 </body>
 </html>
