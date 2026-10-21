@@ -360,7 +360,10 @@ function connectDeriv() {
             "Connexion fermée :",
             event.code,
             event.reason
-        );
+        );alert(
+    "Code : " + event.code +
+    "\nRaison : " + (event.reason || "Aucune raison fournie")
+);
 
         clearInterval(refreshTimer);
         refreshTimer = null;
