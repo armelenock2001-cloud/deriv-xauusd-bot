@@ -4,13 +4,10 @@
 // 1. CONFIGURATION
 // ============================================
 
-const APP_ID = 1089;
-const WS_URL =
-    "wss://ws.derivws.com/websockets/v3?app_id=" + APP_ID;
+const API_URL = "https://biquote.io/api";
+const SYMBOL = "XAUUSD";
 
-const SYMBOL = "frxXAUUSD";
-
-const TIMEFRAME = 14400;
+const TIMEFRAME = 14400; // H4 = 4 heures
 const CANDLE_COUNT = 300;
 
 const EMA_FAST = 50;
@@ -21,21 +18,22 @@ const ATR_PERIOD = 14;
 const SL_ATR_MULTIPLIER = 1.5;
 const REWARD_RISK_RATIO = 2;
 
+const PRICE_REFRESH_MS = 15000;
+const CANDLE_REFRESH_MS = 60000;
+
 // ============================================
 // 2. VARIABLES
 // ============================================
 
-let ws = null;
-let reconnectTimer = null;
 let refreshTimer = null;
-let timeoutTimer = null;
+let priceTimer = null;
 
-let requestId = 0;
-let historyRequestId = null;
 let requestInProgress = false;
+let priceRequestInProgress = false;
 
 let candles = [];
 let currentPrice = null;
+
 let lastProcessedCandle = null;
 let lastSignalKey = null;
 
@@ -80,379 +78,226 @@ function formatTime(epoch) {
     return new Date(epoch * 1000).toLocaleString("fr-FR");
 }
 
-function clearHistoryRequest() {
-    clearTimeout(timeoutTimer);
-
-    timeoutTimer = null;
-    requestInProgress = false;
-    historyRequestId = null;
+function isValidNumber(value) {
+    return Number.isFinite(Number(value));
 }
 
 // ============================================
-// 4. CONNEXION À DERIV
+// 4. RÉCUPÉRATION DU PRIX EN TEMPS RÉEL
 // ============================================
 
-function connectDeriv() {
-    if (stopped) return;
-
-    clearTimeout(reconnectTimer);
-    clearInterval(refreshTimer);
-
-    if (
-        ws &&
-        (ws.readyState === WebSocket.OPEN ||
-         ws.readyState === WebSocket.CONNECTING)
-    ) {
+async function fetchPrice() {
+    if (priceRequestInProgress || stopped) {
         return;
     }
 
-    clearHistoryRequest();
-
-    logStatus("Connexion à Deriv...");
-
-    let socket;
+    priceRequestInProgress = true;
 
     try {
-        socket = new WebSocket(WS_URL);
-        ws = socket;
-    } catch (error) {
-        console.error("Création WebSocket impossible :", error);
+        const response = await fetch(
+            API_URL + "/" + SYMBOL + "?allowStale=false",
+            { cache: "no-store" }
+        );
 
-        logStatus("Impossible de créer la connexion WebSocket.");
+        if (!response.ok) {
+            throw new Error(
+                "Erreur HTTP " + response.status +
+                " lors de la récupération du prix."
+            );
+        }
 
-        scheduleReconnect();
+        const data = await response.json();
 
-        return;
-    }
+        const price = Number(data.mid);
 
-    // Délai maximal de connexion.
-    const connectionTimeout = setTimeout(function () {
+        if (!Number.isFinite(price) || price <= 0) {
+            throw new Error("Prix XAUUSD invalide.");
+        }
+
+        // Vérifier si le prix est réellement récent.
+        const quoteTime = Date.parse(data.timestamp);
+        const ageSeconds = Number(data.quoteAgeSeconds);
+
         if (
-            socket === ws &&
-            socket.readyState === WebSocket.CONNECTING
+            Number.isFinite(ageSeconds) &&
+            ageSeconds > 300
         ) {
-            logStatus("Connexion trop lente. Nouvelle tentative...");
-
-            socket.close();
-        }
-    }, 15000);
-
-    socket.onopen = function () {
-        clearTimeout(connectionTimeout);
-
-        if (socket !== ws) return;
-
-        console.log("WebSocket connecté à Deriv.");
-
-        logStatus("Connexion établie. Vérification du marché...");
-
-        // Demander d'abord le nom et les caractéristiques
-        // du symbole auprès de l'API.
-        socket.send(JSON.stringify({
-            active_symbols: "brief",
-            product_type: "basic",
-            req_id: ++requestId
-        }));
-
-        // Demander ensuite le prix en direct.
-        socket.send(JSON.stringify({
-            ticks: SYMBOL,
-            subscribe: 1,
-            req_id: ++requestId
-        }));
-
-        // Demander l'historique H4.
-        requestCandles();
-
-        refreshTimer = setInterval(function () {
-            requestCandles();
-        }, 60000);
-    };
-
-    socket.onmessage = function (event) {
-        if (socket !== ws) return;
-
-        let data;
-
-        try {
-            data = JSON.parse(event.data);
-        } catch (error) {
-            console.error("Réponse JSON invalide :", error);
-            return;
+            throw new Error(
+                "Cotations trop anciennes : " +
+                ageSeconds + " secondes."
+            );
         }
 
-        console.log("[DERIV]", data);
-
-        // ----------------------------------------
-        // GESTION DES ERREURS API
-        // ----------------------------------------
-
-        if (data.error) {
-            const message = data.error.message || "Erreur inconnue";
-
-            console.error("Erreur API Deriv :", data.error);
-
-            if (
-                data.echo_req &&
-                data.echo_req.req_id === historyRequestId
-            ) {
-                clearHistoryRequest();
-            }
-
-            logStatus("Erreur Deriv : " + message);
-
-            return;
+        if (
+            Number.isFinite(quoteTime) &&
+            Date.now() - quoteTime > 300000
+        ) {
+            throw new Error(
+                "La dernière cotation date de plus de 5 minutes."
+            );
         }
 
-        // ----------------------------------------
-        // VÉRIFICATION DES SYMBOLES
-        // ----------------------------------------
+        currentPrice = price;
 
-        if (data.msg_type === "active_symbols") {
-            const symbols = data.active_symbols || [];
+        setText("current-price", formatPrice(currentPrice));
 
-            const gold = symbols.find(function (item) {
-                return item.symbol === SYMBOL;
-            });
-
-            if (gold) {
-                console.log(
-                    "Symbole trouvé :",
-                    gold.symbol,
-                    gold.display_name
-                );
-            } else {
-                console.warn(
-                    "Le symbole " + SYMBOL +
-                    " n'apparaît pas dans cette liste."
-                );
-            }
-
-            return;
+        if (Number.isFinite(quoteTime)) {
+            setText(
+                "last-update",
+                new Date(quoteTime).toLocaleTimeString("fr-FR")
+            );
         }
 
-        // ----------------------------------------
-        // PRIX EN TEMPS RÉEL
-        // ----------------------------------------
+        console.log(
+            "[BIQUOTE] XAUUSD :",
+            currentPrice,
+            "| Source :",
+            data.source || "non précisée"
+        );
 
-        if (data.msg_type === "tick" && data.tick) {
-            currentPrice = Number(data.tick.quote);
-
-            if (Number.isFinite(currentPrice)) {
-                setText("current-price", formatPrice(currentPrice));
-
-                setText(
-                    "last-update",
-                    new Date(data.tick.epoch * 1000)
-                        .toLocaleTimeString("fr-FR")
-                );
-
-                if (candles.length > 0) {
-                    logStatus(
-                        "Connecté à Deriv — prix en direct",
-                        true
-                    );
-                } else {
-                    logStatus(
-                        "Prix reçu. Chargement de l'historique...",
-                        true
-                    );
-                }
-            }
-
-            return;
+        if (candles.length > 0) {
+            logStatus(
+                "Biquote connecté — prix actualisé",
+                true
+            );
+        } else {
+            logStatus(
+                "Prix reçu — chargement de l'historique H4",
+                true
+            );
         }
 
-        // ----------------------------------------
-        // HISTORIQUE DES BOUGIES
-        // ----------------------------------------
-
-        if (data.msg_type === "history") {
-            if (
-                !data.echo_req ||
-                data.echo_req.req_id !== historyRequestId
-            ) {
-                return;
-            }
-
-            clearHistoryRequest();
-
-            if (
-                !data.history ||
-                !Array.isArray(data.history.candles)
-            ) {
-                logStatus("Historique H4 indisponible.");
-                return;
-            }
-
-            candles = data.history.candles
-                .map(function (c) {
-                    return {
-                        epoch: Number(c.epoch),
-                        open: Number(c.open),
-                        high: Number(c.high),
-                        low: Number(c.low),
-                        close: Number(c.close)
-                    };
-                })
-                .filter(function (c) {
-                    return [
-                        c.epoch,
-                        c.open,
-                        c.high,
-                        c.low,
-                        c.close
-                    ].every(Number.isFinite);
-                })
-                .sort(function (a, b) {
-                    return a.epoch - b.epoch;
-                });
-
-            console.log("Bougies H4 reçues :", candles.length);
-
-            if (candles.length === 0) {
-                logStatus("Aucune bougie disponible.");
-                return;
-            }
-
-            analyzeMarket();
-
-            if (Number.isFinite(currentPrice)) {
-                logStatus(
-                    "Connecté — prix en direct et analyse H4",
-                    true
-                );
-            } else {
-                logStatus(
-                    "Historique reçu : " + candles.length + " bougies",
-                    true
-                );
-            }
-
-            return;
-        }
-
-        // ----------------------------------------
-        // AUTRES RÉPONSES
-        // ----------------------------------------
-
-        if (data.msg_type === "ping") {
-            console.log("Réponse ping reçue.");
-        }
-    };
-
-    socket.onerror = function (error) {
-        if (socket !== ws) return;
-
-        console.error("Erreur WebSocket :", error);
+    } catch (error) {
+        console.error("Erreur prix Biquote :", error);
 
         logStatus(
-            "Erreur WebSocket. Vérifie Internet et la connexion Deriv."
+            "Prix indisponible : " + error.message
         );
-    };
 
-    socket.onclose = function (event) {
-        clearTimeout(connectionTimeout);
-
-        if (socket !== ws) return;
-
-        console.warn(
-            "Connexion fermée :",
-            event.code,
-            event.reason
-        );alert(
-    "Code : " + event.code +
-    "\nRaison : " + (event.reason || "Aucune raison fournie")
-);
-
-        clearInterval(refreshTimer);
-        refreshTimer = null;
-
-        clearHistoryRequest();
-
-        ws = null;
-
-        if (!stopped) {
-            logStatus(
-                "Connexion fermée (code " + event.code +
-                "). Reconnexion dans 5 secondes..."
-            );
-
-            scheduleReconnect();
-        }
-    };
-}
-
-// ============================================
-// 5. RECONNEXION
-// ============================================
-
-function scheduleReconnect() {
-    clearTimeout(reconnectTimer);
-
-    if (stopped) return;
-
-    reconnectTimer = setTimeout(function () {
-        connectDeriv();
-    }, 5000);
-}
-
-// ============================================
-// 6. RÉCUPÉRATION DES BOUGIES
-// ============================================
-
-function requestCandles() {
-    if (!ws || ws.readyState !== WebSocket.OPEN) {
-        return;
+    } finally {
+        priceRequestInProgress = false;
     }
+}
 
-    if (requestInProgress) {
+// ============================================
+// 5. RÉCUPÉRATION DES BOUGIES H4
+// ============================================
+
+async function requestCandles() {
+    if (requestInProgress || stopped) {
         return;
     }
 
     requestInProgress = true;
 
-    const id = ++requestId;
-    historyRequestId = id;
-
     try {
-        ws.send(JSON.stringify({
-            ticks_history: SYMBOL,
-            style: "candles",
-            granularity: TIMEFRAME,
-            count: CANDLE_COUNT,
-            end: "latest",
-            req_id: id
-        }));
-    } catch (error) {
-        console.error("Envoi de la demande impossible :", error);
+        const url =
+            API_URL + "/" + SYMBOL +
+            "/ohlc?interval=4h&limit=" + CANDLE_COUNT;
 
-        clearHistoryRequest();
+        const response = await fetch(url, {
+            cache: "no-store"
+        });
 
-        return;
-    }
-
-    timeoutTimer = setTimeout(function () {
-        if (historyRequestId === id) {
-            console.warn("Réponse historique trop lente.");
-
-            clearHistoryRequest();
-
-            logStatus(
-                "Délai dépassé pendant le chargement des bougies."
+        if (!response.ok) {
+            throw new Error(
+                "Erreur HTTP " + response.status +
+                " pendant le chargement des bougies."
             );
         }
-    }, 15000);
+
+        const data = await response.json();
+
+        if (!data || !Array.isArray(data.bars)) {
+            throw new Error(
+                "Format de réponse OHLC non reconnu."
+            );
+        }
+
+        const receivedCandles = data.bars
+            .map(function (c) {
+                return {
+                    epoch: Math.floor(
+                        Date.parse(c.openTime) / 1000
+                    ),
+
+                    open: Number(c.open),
+                    high: Number(c.high),
+                    low: Number(c.low),
+                    close: Number(c.close),
+
+                    isOpen: c.isOpen === true
+                };
+            })
+            .filter(function (c) {
+                return (
+                    Number.isFinite(c.epoch) &&
+                    [
+                        c.open,
+                        c.high,
+                        c.low,
+                        c.close
+                    ].every(Number.isFinite) &&
+                    c.high >= c.low
+                );
+            })
+            .sort(function (a, b) {
+                return a.epoch - b.epoch;
+            });
+
+        if (receivedCandles.length === 0) {
+            throw new Error(
+                "Aucune bougie H4 valide reçue."
+            );
+        }
+
+        candles = receivedCandles;
+
+        console.log(
+            "[BIQUOTE] Bougies reçues :",
+            candles.length
+        );
+
+        console.log(
+            "[BIQUOTE] Dernière bougie :",
+            candles[candles.length - 1]
+        );
+
+        analyzeMarket();
+
+        logStatus(
+            "Biquote connecté — analyse H4 actualisée",
+            true
+        );
+
+    } catch (error) {
+        console.error("Erreur historique Biquote :", error);
+
+        logStatus(
+            "Erreur historique : " + error.message
+        );
+
+        setText(
+            "signal-reason",
+            "Impossible de charger les bougies H4. " +
+            error.message
+        );
+
+    } finally {
+        requestInProgress = false;
+    }
 }
 
 // ============================================
-// 7. EMA
+// 6. EMA
 // ============================================
 
 function calculateEMA(values, period) {
     const result = new Array(values.length).fill(null);
 
-    if (values.length < period) return result;
+    if (values.length < period) {
+        return result;
+    }
 
     let sum = 0;
 
@@ -467,7 +312,9 @@ function calculateEMA(values, period) {
     const multiplier = 2 / (period + 1);
 
     for (let i = period; i < values.length; i++) {
-        ema = (values[i] - ema) * multiplier + ema;
+        ema =
+            (values[i] - ema) * multiplier + ema;
+
         result[i] = ema;
     }
 
@@ -475,19 +322,22 @@ function calculateEMA(values, period) {
 }
 
 // ============================================
-// 8. RSI
+// 7. RSI
 // ============================================
 
 function calculateRSI(values, period = 14) {
     const result = new Array(values.length).fill(null);
 
-    if (values.length <= period) return result;
+    if (values.length <= period) {
+        return result;
+    }
 
     let gains = 0;
     let losses = 0;
 
     for (let i = 1; i <= period; i++) {
-        const difference = values[i] - values[i - 1];
+        const difference =
+            values[i] - values[i - 1];
 
         gains += Math.max(difference, 0);
         losses += Math.max(-difference, 0);
@@ -497,16 +347,29 @@ function calculateRSI(values, period = 14) {
     let averageLoss = losses / period;
 
     function getRSI(gain, loss) {
-        if (gain === 0 && loss === 0) return 50;
-        if (loss === 0) return 100;
+        if (gain === 0 && loss === 0) {
+            return 50;
+        }
+
+        if (loss === 0) {
+            return 100;
+        }
 
         return 100 - 100 / (1 + gain / loss);
     }
 
-    result[period] = getRSI(averageGain, averageLoss);
+    result[period] = getRSI(
+        averageGain,
+        averageLoss
+    );
 
-    for (let i = period + 1; i < values.length; i++) {
-        const difference = values[i] - values[i - 1];
+    for (
+        let i = period + 1;
+        i < values.length;
+        i++
+    ) {
+        const difference =
+            values[i] - values[i - 1];
 
         averageGain = (
             averageGain * (period - 1) +
@@ -518,36 +381,50 @@ function calculateRSI(values, period = 14) {
             Math.max(-difference, 0)
         ) / period;
 
-        result[i] = getRSI(averageGain, averageLoss);
+        result[i] = getRSI(
+            averageGain,
+            averageLoss
+        );
     }
 
     return result;
 }
 
 // ============================================
-// 9. ATR
+// 8. ATR
 // ============================================
 
 function calculateATR(data, period = 14) {
     const result = new Array(data.length).fill(null);
 
-    if (data.length <= period) return result;
+    if (data.length <= period) {
+        return result;
+    }
 
     const ranges = [];
 
     for (let i = 0; i < data.length; i++) {
         if (i === 0) {
-            ranges.push(data[i].high - data[i].low);
+            ranges.push(
+                data[i].high - data[i].low
+            );
+
             continue;
         }
 
         const previousClose = data[i - 1].close;
 
-        ranges.push(Math.max(
-            data[i].high - data[i].low,
-            Math.abs(data[i].high - previousClose),
-            Math.abs(data[i].low - previousClose)
-        ));
+        ranges.push(
+            Math.max(
+                data[i].high - data[i].low,
+                Math.abs(
+                    data[i].high - previousClose
+                ),
+                Math.abs(
+                    data[i].low - previousClose
+                )
+            )
+        );
     }
 
     let average = 0;
@@ -557,11 +434,17 @@ function calculateATR(data, period = 14) {
     }
 
     average /= period;
+
     result[period] = average;
 
-    for (let i = period + 1; i < data.length; i++) {
+    for (
+        let i = period + 1;
+        i < data.length;
+        i++
+    ) {
         average = (
-            average * (period - 1) + ranges[i]
+            average * (period - 1) +
+            ranges[i]
         ) / period;
 
         result[i] = average;
@@ -571,7 +454,7 @@ function calculateATR(data, period = 14) {
 }
 
 // ============================================
-// 10. ANALYSE H4
+// 9. ANALYSE DU MARCHÉ H4
 // ============================================
 
 function analyzeMarket() {
@@ -579,7 +462,9 @@ function analyzeMarket() {
         setText(
             "signal-reason",
             "Historique insuffisant : " +
-            candles.length + " bougies reçues."
+            candles.length +
+            " bougies reçues. " +
+            "Il en faut au moins 205."
         );
 
         return;
@@ -587,25 +472,51 @@ function analyzeMarket() {
 
     const now = Math.floor(Date.now() / 1000);
 
-    const closedCandles = candles.filter(function (c) {
-        return c.epoch + TIMEFRAME <= now;
-    });
+    // Ne garder que les bougies clôturées.
+    const closedCandles = candles.filter(
+        function (c) {
+            return (
+                !c.isOpen &&
+                c.epoch + TIMEFRAME <= now
+            );
+        }
+    );
 
     if (closedCandles.length < EMA_SLOW + 5) {
         setText(
             "signal-reason",
-            "En attente d'au moins 205 bougies H4 clôturées."
+            "En attente d'au moins 205 bougies H4 clôturées. " +
+            "Disponibles : " + closedCandles.length
         );
 
         return;
     }
 
-    const closes = closedCandles.map(c => c.close);
+    const closes = closedCandles.map(
+        function (c) {
+            return c.close;
+        }
+    );
 
-    const ema50 = calculateEMA(closes, EMA_FAST);
-    const ema200 = calculateEMA(closes, EMA_SLOW);
-    const rsi = calculateRSI(closes, RSI_PERIOD);
-    const atr = calculateATR(closedCandles, ATR_PERIOD);
+    const ema50 = calculateEMA(
+        closes,
+        EMA_FAST
+    );
+
+    const ema200 = calculateEMA(
+        closes,
+        EMA_SLOW
+    );
+
+    const rsi = calculateRSI(
+        closes,
+        RSI_PERIOD
+    );
+
+    const atr = calculateATR(
+        closedCandles,
+        ATR_PERIOD
+    );
 
     const i = closedCandles.length - 1;
 
@@ -618,7 +529,9 @@ function analyzeMarket() {
     const a = atr[i];
 
     if (
-        ![e50, e200, r, a].every(Number.isFinite) ||
+        ![e50, e200, r, a].every(
+            Number.isFinite
+        ) ||
         a <= 0
     ) {
         setText(
@@ -629,16 +542,24 @@ function analyzeMarket() {
         return;
     }
 
+    // Afficher les indicateurs.
     setText("ema50", formatPrice(e50));
     setText("ema200", formatPrice(e200));
     setText("rsi", r.toFixed(2));
     setText("atr", formatPrice(a));
 
+    // Déterminer la tendance.
     let trend = "Neutre";
 
-    if (e50 > e200 && candle.close > e50) {
+    if (
+        e50 > e200 &&
+        candle.close > e50
+    ) {
         trend = "Haussière";
-    } else if (e50 < e200 && candle.close < e50) {
+    } else if (
+        e50 < e200 &&
+        candle.close < e50
+    ) {
         trend = "Baissière";
     }
 
@@ -646,9 +567,11 @@ function analyzeMarket() {
 
     if (trendNode) {
         trendNode.style.color =
-            trend === "Haussière" ? "#27ae60" :
-            trend === "Baissière" ? "#c0392b" :
-            "#f1c40f";
+            trend === "Haussière"
+                ? "#27ae60"
+                : trend === "Baissière"
+                    ? "#c0392b"
+                    : "#f1c40f";
     }
 
     setText("market-tendance", trend);
@@ -657,18 +580,23 @@ function analyzeMarket() {
         "last-analysis",
         "Dernière analyse : " +
         new Date().toLocaleString("fr-FR") +
-        " | Bougie : " +
+        " | Bougie H4 : " +
         formatTime(candle.epoch)
     );
 
+    // Ne pas retraiter la même bougie clôturée.
     if (lastProcessedCandle === candle.epoch) {
         return;
     }
 
     lastProcessedCandle = candle.epoch;
 
-    const bullish = candle.close > candle.open;
-    const bearish = candle.close < candle.open;
+    // Conditions de confirmation.
+    const bullish =
+        candle.close > candle.open;
+
+    const bearish =
+        candle.close < candle.open;
 
     const buySignal =
         e50 > e200 &&
@@ -690,21 +618,31 @@ function analyzeMarket() {
         setText(
             "signal-reason",
             "Aucun signal confirmé. Tendance : " +
-            trend + " | RSI : " + r.toFixed(2)
+            trend +
+            " | RSI : " +
+            r.toFixed(2) +
+            ". En attente d'une nouvelle bougie H4."
         );
 
         return;
     }
 
     const type = buySignal ? "BUY" : "SELL";
-    const signalKey = type + "-" + candle.epoch;
 
-    if (signalKey === lastSignalKey) return;
+    const signalKey =
+        type + "-" + candle.epoch;
+
+    if (signalKey === lastSignalKey) {
+        return;
+    }
 
     lastSignalKey = signalKey;
 
+    // Calcul du Stop Loss et du Take Profit.
     const entry = candle.close;
-    const risk = a * SL_ATR_MULTIPLIER;
+
+    const risk =
+        a * SL_ATR_MULTIPLIER;
 
     const sl = type === "BUY"
         ? entry - risk
@@ -721,17 +659,20 @@ function analyzeMarket() {
         tp: tp,
         rsi: r,
         candleTime: candle.epoch,
+
         reason:
             "Signal " + type +
-            " détecté sur H4. EMA 50/200 alignées, RSI " +
+            " détecté sur H4. " +
+            "EMA 50/200 alignées, RSI " +
             r.toFixed(2) +
             ", ATR " + formatPrice(a) +
-            ". Ratio théorique : 1:2."
+            ". Ratio théorique : 1:2. " +
+            "Source : Biquote."
     });
 }
 
 // ============================================
-// 11. AFFICHAGE DU SIGNAL
+// 10. AFFICHAGE DES SIGNAUX
 // ============================================
 
 function triggerSignal(signal) {
@@ -741,25 +682,47 @@ function triggerSignal(signal) {
 
     if (badge) {
         badge.textContent = type;
-        badge.className = "badge " + type.toLowerCase();
+
+        badge.className =
+            "badge " + type.toLowerCase();
     }
 
-    setText("signal-entry", formatPrice(signal.entry));
-    setText("signal-sl", formatPrice(signal.sl));
-    setText("signal-tp", formatPrice(signal.tp));
+    setText(
+        "signal-entry",
+        formatPrice(signal.entry)
+    );
+
+    setText(
+        "signal-sl",
+        formatPrice(signal.sl)
+    );
+
+    setText(
+        "signal-tp",
+        formatPrice(signal.tp)
+    );
+
     setText("signal-rr", "1:2");
     setText("signal-conf", "Critères réunis");
 
     setText(
         "signal-time",
-        "Bougie H4 : " + formatTime(signal.candleTime)
+        "Bougie H4 : " +
+        formatTime(signal.candleTime)
     );
 
-    setText("signal-reason", signal.reason);
+    setText(
+        "signal-reason",
+        signal.reason
+    );
 
-    const tbody = document.querySelector("#history-table tbody");
+    const tbody = document.querySelector(
+        "#history-table tbody"
+    );
 
-    if (!tbody) return;
+    if (!tbody) {
+        return;
+    }
 
     const row = document.createElement("tr");
 
@@ -787,118 +750,90 @@ function triggerSignal(signal) {
     tbody.prepend(row);
 
     while (tbody.rows.length > 50) {
-        tbody.deleteRow(tbody.rows.length - 1);
+        tbody.deleteRow(
+            tbody.rows.length - 1
+        );
     }
 }
 
 // ============================================
-// 12. BOUTON ACTUALISER
+// 11. BOUTON ACTUALISER
 // ============================================
 
 const refreshButton = el("refresh-button");
 
 if (refreshButton) {
-    refreshButton.addEventListener("click", function () {
-        if (requestInProgress) {
-            logStatus("Chargement des données en cours...");
-            return;
+    refreshButton.addEventListener(
+        "click",
+        function () {
+            fetchPrice();
+            requestCandles();
         }
-
-        requestCandles();
-    });
+    );
 }
 
 // ============================================
-// 13. INTERNET
+// 12. CONNEXION INTERNET
 // ============================================
 
-window.addEventListener("online", function () {
-    if (!ws || ws.readyState === WebSocket.CLOSED) {
-        connectDeriv();
+window.addEventListener(
+    "online",
+    function () {
+        if (!stopped) {
+            fetchPrice();
+            requestCandles();
+        }
     }
-});
-
-window.addEventListener("offline", function () {
-    logStatus("Internet indisponible.");
-});
-
-// ============================================
-// 14. FERMETURE
-// ============================================
-
-window.addEventListener("beforeunload", function () {
-    stopped = true;
-
-    clearTimeout(reconnectTimer);
-    clearInterval(refreshTimer);
-    clearTimeout(timeoutTimer);
-
-    if (ws) {
-        ws.close();
-    }
-});
-
-// ============================================
-// 15. DÉMARRAGE
-// ==============
-const socket = new WebSocket(
-  "wss://ws.derivws.com/websockets/v3?app_id=1089"
 );
 
-socket.onopen = () => {
-  document.body.insertAdjacentHTML(
-    "beforeend",
-    "<p id='deriv-status'>Connecté à Deriv, vérification du prix...</p>"
-  );
+window.addEventListener(
+    "offline",
+    function () {
+        logStatus(
+            "Internet indisponible. " +
+            "En attente de la reconnexion."
+        );
+    }
+);
 
-  socket.send(JSON.stringify({
-    active_symbols: "brief",
-    product_type: "basic"
-  }));
-};
+// ============================================
+// 13. DÉMARRAGE ET ARRÊT
+// ============================================
 
-socket.onmessage = (event) => {
-  const data = JSON.parse(event.data);
+function startBiquote() {
+    stopped = false;
 
-  if (data.error) {
-    document.getElementById("deriv-status").textContent =
-      "Erreur Deriv : " + data.error.message;
-    return;
-  }
+    clearInterval(refreshTimer);
+    clearInterval(priceTimer);
 
-  if (data.active_symbols) {
-    const gold = data.active_symbols.find(
-      s => s.symbol === "frxXAUUSD" ||
-           s.display_name === "Gold/USD"
+    logStatus("Connexion à Biquote...");
+
+    // Charger immédiatement les données.
+    fetchPrice();
+    requestCandles();
+
+    // Actualiser les cotations toutes les 15 secondes.
+    priceTimer = setInterval(
+        fetchPrice,
+        PRICE_REFRESH_MS
     );
 
-    if (gold) {
-      document.getElementById("deriv-status").textContent =
-        "Symbole trouvé : " + gold.symbol +
-        " — " + gold.display_name;
+    // Actualiser les bougies toutes les minutes.
+    refreshTimer = setInterval(
+        requestCandles,
+        CANDLE_REFRESH_MS
+    );
+}
 
-      socket.send(JSON.stringify({
-        ticks: gold.symbol,
-        subscribe: 1
-      }));
-    } else {
-      document.getElementById("deriv-status").textContent =
-        "Symbole frxXAUUSD introuvable dans cette liste.";
+window.addEventListener(
+    "beforeunload",
+    function () {
+        stopped = true;
+
+        clearInterval(refreshTimer);
+        clearInterval(priceTimer);
     }
-  }
+);
 
-  if (data.tick) {
-    document.getElementById("deriv-status").textContent =
-      "Prix Deriv : " + data.tick.quote;
-  }
-};
-
-socket.onerror = () => {
-  const status = document.getElementById("deriv-status");
-  if (status) status.textContent = "Erreur de connexion à Deriv.";
-};
-
-socket.onclose = () => {
-  const status = document.getElementById("deriv-status");
-  if (status) status.textContent = "Connexion à Deriv fermée.";
-};
+// Lancement automatique du site.
+startBiquote();
