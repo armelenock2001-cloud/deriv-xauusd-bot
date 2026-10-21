@@ -1,6 +1,6 @@
 const wsUrl = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 let ws;
-const symbol = "frxXAUUSD"; // Symbole de l'or sur Deriv (ou "XAUUSD" selon la plateforme, souvent fxXAUUSD ou gold)
+const symbol = "XAUUSD"; // Symbole corrigé pour la connexion à l'or sur Deriv
 
 let priceHistory = [];
 const maxHistoryLength = 50; // Garde les 50 derniers prix pour l'analyse
@@ -52,7 +52,7 @@ function connectDeriv() {
 function analyzeMarket() {
     if (priceHistory.length < 10) return; // Pas assez de données
 
-    // Logique simple de tendance basée sur les moyennes mobiles / momentum
+    // Logique simple de tendance basée sur les mouvements récents
     const recentPrices = priceHistory.slice(-10);
     const firstPrice = recentPrices[0];
     const lastPrice = recentPrices[recentPrices.length - 1];
@@ -69,8 +69,7 @@ function analyzeMarket() {
     }
     document.getElementById("market-tendance").textContent = tendance;
 
-    // Condition simple de génération de signal (à affiner selon ta stratégie exacte)
-    // Exemple : Variation forte sur les derniers ticks
+    // Condition de génération de signal
     const diff = lastPrice - firstPrice;
     if (Math.abs(diff) > 0.5) { // Seuil de déclenchement
         const type = diff > 0 ? "BUY" : "SELL";
@@ -84,7 +83,6 @@ function analyzeMarket() {
 
 let lastSignalType = null;
 function triggerSignal(type, entry, sl, tp, tendance, reason) {
-    // Éviter de spammer le même signal en boucle
     if (type === lastSignalType) return;
     lastSignalType = type;
 
@@ -115,16 +113,5 @@ function triggerSignal(type, entry, sl, tp, tendance, reason) {
 
     // Notification navigateur si supporté
     if (Notification.permission === "granted") {
-        new Notification(`Nouveau Signal ${type} - XAU/USD`, {
-            body: `Entrée: ${entry.toFixed(2)} | TP: ${tp.toFixed(2)}`
-        });
-    }
-}
-
-// Demander la permission pour les notifications au démarrage
-if (Notification.permission !== "granted" && Notification.permission !== "denied") {
-    Notification.requestPermission();
-}
-
-// Lancer la connexion au chargement
-window.onload = connectDeriv;
+        new
+            
