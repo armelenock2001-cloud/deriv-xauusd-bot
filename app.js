@@ -4,11 +4,8 @@
 // 1. CONFIGURATION
 // ============================================
 
-const PRICE_URL =
-"https://biquote.io/api/XAUUSD?allowStale=false";
-
-const CANDLES_URL =
-"https://biquote.io/api/XAUUSD/ohlc?interval=1h&limit=500";
+const PRICE_URL = "https://biquote.io/api/XAUUSD?allowStale=false";
+const CANDLES_URL = "https://biquote.io/api/XAUUSD/ohlc?interval=1h&limit=500";
 
 const EMA_FAST = 50;
 const EMA_SLOW = 200;
@@ -64,8 +61,7 @@ refreshButton: document.getElementById("refresh-button")
 // ============================================
 
 function formatPrice(value) {
-if (!Number.isFinite(value)) return "--";
-return value.toFixed(2);
+return Number.isFinite(value) ? value.toFixed(2) : "--";
 }
 
 function formatTime(date = new Date()) {
@@ -114,6 +110,38 @@ el.signalReason.textContent = message;
 }
 }
 
+function getArrayFromResponse(data) {
+if (Array.isArray(data)) return data;
+if (!data || typeof data !== "object") return [];
+
+const possibleKeys = [
+    "bars",
+    "candles",
+    "ohlc",
+    "data",
+    "results",
+    "prices"
+];
+
+for (const key of possibleKeys) {
+    if (Array.isArray(data[key])) {
+        return data[key];
+    }
+
+    if (
+        data[key] &&
+        typeof data[key] === "object" &&
+        !Array.isArray(data[key])
+    ) {
+        const nested = getArrayFromResponse(data[key]);
+        if (nested.length > 0) return nested;
+    }
+}
+
+return [];
+
+}
+
 // ============================================
 // 4. RÉCUPÉRATION DU PRIX XAU/USD
 // ============================================
@@ -132,11 +160,30 @@ if (!response.ok) {
 
 const data = await response.json();
 
-const price = getNumber(data.mid);
+const priceCandidates = [
+    data?.mid,
+    data?.price,
+    data?.last,
+    data?.close,
+    data?.data?.mid,
+    data?.data?.price
+];
 
-if (price === null || price <= 0) {
+let price = null;
+
+for (const candidate of priceCandidates) {
+    price = getNumber(candidate);
+
+    if (price !== null && price > 0) break;
+
+    price = null;
+}
+
+if (price === null) {
+    console.error("Réponse du prix Biquote :", data);
+
     throw new Error(
-        "Le prix reçu est invalide ou absent dans la réponse de Biquote."
+        "Prix absent ou format de réponse Biquote non reconnu."
     );
 }
 
@@ -152,7 +199,7 @@ if (el.lastUpdate) {
 
 setConnection(true, "Données reçues");
 
-return data;
+return price;
 
 }
 
@@ -160,37 +207,55 @@ return data;
 // 5. NORMALISATION DES BOUGIES
 // ============================================
 
-function normalizeCandle(raw) {
-const timeValue =
-raw.time ??
-raw.timestamp ??
-raw.datetime ??
-raw.date ??
-raw.t;
+function parseCandleTime(value) {
+if (value === null || value === undefined || value === "") {
+return null;
+}
 
 let time;
 
-if (typeof timeValue === "number") {
-    time = timeValue;
-} else if (typeof timeValue === "string") {
-    const numericTime = Number(timeValue);
+if (typeof value === "number") {
+    time = value;
+} else if (typeof value === "string") {
+    const trimmed = value.trim();
 
-    time = timeValue.trim() !== "" &&
-        Number.isFinite(numericTime)
-        ? numericTime
-        : Date.parse(timeValue);
+    if (/^\d+(\.\d+)?$/.test(trimmed)) {
+        time = Number(trimmed);
+    } else {
+        time = Date.parse(trimmed);
+    }
 } else {
     return null;
 }
 
-if (!Number.isFinite(time)) {
-    return null;
-}
+if (!Number.isFinite(time)) return null;
 
-// Conversion des timestamps en secondes vers millisecondes.
+// Conversion secondes Unix vers millisecondes.
 if (time < 100000000000) {
     time *= 1000;
 }
+
+return time;
+
+}
+
+function normalizeCandle(raw) {
+if (!raw || typeof raw !== "object") return null;
+
+const timeValue =
+    raw.time ??
+    raw.timestamp ??
+    raw.datetime ??
+    raw.date ??
+    raw.t ??
+    raw.start ??
+    raw.openTime ??
+    raw.open_time ??
+    raw.time_open;
+
+const time = parseCandleTime(timeValue);
+
+if (time === null) return null;
 
 const open = getNumber(raw.open ?? raw.o);
 const high = getNumber(raw.high ?? raw.h);
@@ -202,18 +267,20 @@ if (
     high === null ||
     low === null ||
     close === null ||
-    high < low
+    open <= 0 ||
+    high <= 0 ||
+    low <= 0 ||
+    close <= 0 ||
+    high < low ||
+    high < open ||
+    high < close ||
+    low > open ||
+    low > close
 ) {
     return null;
 }
 
-return {
-    time,
-    open,
-    high,
-    low,
-    close
-};
+return { time, open, high, low, close };
 
 }
 
@@ -234,47 +301,61 @@ if (!response.ok) {
 }
 
 const data = await response.json();
-
-const rawBars = Array.isArray(data)
-    ? data
-    : Array.isArray(data.bars)
-        ? data.bars
-        : Array.isArray(data.candles)
-            ? data.candles
-            : [];
+const rawBars = getArrayFromResponse(data);
 
 if (rawBars.length === 0) {
+    console.error("Réponse brute des bougies Biquote :", data);
+
     throw new Error(
-        "Biquote n'a retourné aucune bougie H1 reconnue."
+        "Aucune bougie reconnue dans la réponse Biquote."
     );
 }
 
-const now = Date.now();
-const candleDuration = 60 * 60 * 1000;
 const unique = new Map();
 
 for (const raw of rawBars) {
     const candle = normalizeCandle(raw);
 
-    if (!candle) continue;
-
-    // Ignorer les bougies encore en formation.
-    if (candle.time + candleDuration > now) continue;
-
-    unique.set(candle.time, candle);
+    if (candle) {
+        unique.set(candle.time, candle);
+    }
 }
 
-return Array.from(unique.values())
+const allCandles = Array.from(unique.values())
     .sort((a, b) => a.time - b.time);
+
+if (allCandles.length === 0) {
+    console.error(
+        "Exemples de bougies reçues :",
+        rawBars.slice(0, 3)
+    );
+
+    throw new Error(
+        "Les dates ou les valeurs OHLC des bougies ne sont pas reconnues."
+    );
+}
+
+const now = Date.now();
+const candleDuration = 60 * 60 * 1000;
+
+const closedCandles = allCandles.filter(
+    candle => candle.time + candleDuration <= now
+);
+
+console.log("Bougies reçues :", rawBars.length);
+console.log("Bougies valides :", allCandles.length);
+console.log("Bougies H1 clôturées :", closedCandles.length);
+
+return closedCandles;
 
 }
 
 // ============================================
-// 7. CALCUL EMA
+// 7. CALCUL EMA — CORRIGÉ
 // ============================================
 
 function calculateEMA(values, period) {
-if (!values.length) return null;
+if (!values || values.length === 0) return null;
 
 const seedLength = Math.min(values.length, period);
 
@@ -288,7 +369,7 @@ for (let i = seedLength; i < values.length; i++) {
     ema = (values[i] - ema) * multiplier + ema;
 }
 
-return ema;
+return Number.isFinite(ema) ? ema : null;
 
 }
 
@@ -297,7 +378,7 @@ return ema;
 // ============================================
 
 function calculateRSI(values, period) {
-if (values.length < period + 1) return null;
+if (!values || values.length < period + 1) return null;
 
 let gains = 0;
 let losses = 0;
@@ -318,17 +399,18 @@ let averageLoss = losses / period;
 for (let i = period + 1; i < values.length; i++) {
     const change = values[i] - values[i - 1];
 
-    const gain = Math.max(change, 0);
-    const loss = Math.max(-change, 0);
-
     averageGain =
-        (averageGain * (period - 1) + gain) / period;
+        (averageGain * (period - 1) + Math.max(change, 0)) /
+        period;
 
     averageLoss =
-        (averageLoss * (period - 1) + loss) / period;
+        (averageLoss * (period - 1) + Math.max(-change, 0)) /
+        period;
 }
 
-if (averageLoss === 0) return 100;
+if (averageLoss === 0) {
+    return averageGain === 0 ? 50 : 100;
+}
 
 const rs = averageGain / averageLoss;
 
@@ -341,7 +423,7 @@ return 100 - 100 / (1 + rs);
 // ============================================
 
 function calculateATR(candles, period) {
-if (candles.length < period + 1) return null;
+if (!candles || candles.length < period + 1) return null;
 
 const trueRanges = [];
 
@@ -365,11 +447,12 @@ let atr = trueRanges
     .reduce((sum, value) => sum + value, 0) / period;
 
 for (let i = period; i < trueRanges.length; i++) {
-    atr =
-        (atr * (period - 1) + trueRanges[i]) / period;
+    atr = (
+        atr * (period - 1) + trueRanges[i]
+    ) / period;
 }
 
-return atr;
+return Number.isFinite(atr) ? atr : null;
 
 }
 
@@ -474,7 +557,7 @@ if (el.refreshButton) {
 }
 
 try {
-    showError("Récupération des données H1...");
+    showError("Récupération du prix et des bougies H1...");
 
     const results = await Promise.allSettled([
         fetchPrice(),
@@ -502,8 +585,8 @@ try {
         if (el.atr) el.atr.textContent = "--";
 
         clearSignal(
-            `Seulement ${candles.length} bougies H1 clôturées ont été reçues. ` +
-            `Il en faut au moins ${MIN_CANDLES_FOR_SIGNAL} pour analyser le marché.`
+            `${candles.length} bougie(s) H1 clôturée(s) disponible(s). ` +
+            `Il en faut au moins ${MIN_CANDLES_FOR_SIGNAL}.`
         );
 
         if (el.lastAnalysis) {
@@ -540,8 +623,12 @@ try {
         }
 
         clearSignal(
-            "Les données reçues ne permettent pas de calculer tous les indicateurs."
+            "Impossible de calculer les indicateurs avec les données reçues."
         );
+
+        if (el.lastAnalysis) {
+            el.lastAnalysis.textContent = formatTime();
+        }
 
         return;
     }
@@ -679,7 +766,7 @@ try {
             `RSI : ${rsi.toFixed(2)}. ` +
             `ATR : ${formatPrice(atr)}. ` +
             (warnings.length ? warnings.join(". ") + ". " : "") +
-            "Le robot attend que les conditions d'entrée soient réunies."
+            "Le système attend que les conditions d'entrée soient réunies."
         );
 
         if (el.signalConf) {
@@ -701,9 +788,12 @@ try {
     }
 
     showError(
-        `Erreur : ${error.message || "récupération des données impossible"}. ` +
-        "Vérifie les URL et la disponibilité de l'API."
+        `Erreur : ${error.message || "Récupération des données impossible"}.`
     );
+
+    if (el.lastAnalysis) {
+        el.lastAnalysis.textContent = formatTime();
+    }
 
 } finally {
     analysisRunning = false;
@@ -723,7 +813,7 @@ if (el.refreshButton) {
 el.refreshButton.addEventListener("click", analyzeMarket);
 }
 
-// Première analyse au chargement.
+// Première analyse automatique.
 analyzeMarket();
 
 // Actualisation du prix toutes les 15 secondes.
