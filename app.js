@@ -144,7 +144,10 @@ async function tryUrls(urls, parser, label) {
       if (result !== null && result !== undefined) {
         return result;
       }
-      errors.push(`${url} → format inattendu`);
+      errors.push(
+        `${url} → format inattendu, extrait : ` +
+          JSON.stringify(data).slice(0, 250)
+      );
     } catch (error) {
       errors.push(`${url} → ${error.message}`);
     }
@@ -197,6 +200,27 @@ async function fetchPrice() {
 // 5. RÉCUPÉRATION DES BOUGIES H1
 // ============================================
 
+function parseTimeString(text) {
+  const t = text.trim();
+
+  const mt = t.match(
+    /^(\d{4})[.\-\/](\d{2})[.\-\/](\d{2})[ T](\d{2}):(\d{2})(?::(\d{2}))?/
+  );
+
+  if (mt) {
+    return Date.UTC(
+      Number(mt[1]),
+      Number(mt[2]) - 1,
+      Number(mt[3]),
+      Number(mt[4]),
+      Number(mt[5]),
+      Number(mt[6] || 0)
+    );
+  }
+
+  return Date.parse(t);
+}
+
 function normalizeCandle(raw) {
   if (!raw || typeof raw !== "object") return null;
 
@@ -212,7 +236,7 @@ function normalizeCandle(raw) {
     time =
       Number.isFinite(numericTime) && timeValue.trim() !== ""
         ? numericTime
-        : Date.parse(timeValue);
+        : parseTimeString(timeValue);
   } else {
     return null;
   }
@@ -242,18 +266,20 @@ function normalizeCandle(raw) {
   return { time, open, high, low, close };
 }
 
+function findArray(obj, depth = 0) {
+  if (Array.isArray(obj)) return obj;
+  if (!obj || typeof obj !== "object" || depth > 3) return null;
+
+  for (const value of Object.values(obj)) {
+    const found = findArray(value, depth + 1);
+    if (found && found.length) return found;
+  }
+
+  return null;
+}
+
 function parseCandles(data) {
-  const rawBars = Array.isArray(data)
-    ? data
-    : Array.isArray(data?.bars)
-    ? data.bars
-    : Array.isArray(data?.candles)
-    ? data.candles
-    : Array.isArray(data?.data)
-    ? data.data
-    : Array.isArray(data?.ohlc)
-    ? data.ohlc
-    : [];
+  const rawBars = findArray(data) || [];
 
   if (rawBars.length === 0) return null;
 
@@ -711,10 +737,4 @@ setInterval(async () => {
   try {
     await fetchPrice();
   } catch (error) {
-    console.error("Erreur de mise à jour du prix :", error);
-    setConnection(false, "Connexion interrompue");
-  }
-}, PRICE_REFRESH_MS);
-
-// Nouvelle analyse automatique toutes les 60 secondes
-setInterval(analyzeMarket, ANALYSIS_REFRESH_MS);
+    console.error("
