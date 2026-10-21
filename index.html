@@ -1,70 +1,115 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Signal XAU/USD - Deriv</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
-            text-align: center;
-            padding: 20px;
-            margin: 0;
-        }
-        h1 {
-            font-size: 1.5rem;
-            color: #f39c12;
-        }
-        #signal-container {
-            background-color: #1e1e1e;
-            border: 2px dashed #444;
-            padding: 15px;
-            margin: 20px auto;
-            border-radius: 8px;
-            max-width: 400px;
-        }
-        button {
-            background-color: #27ae60;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            max-width: 400px;
-            margin-top: 10px;
-        }
-        button:active {
-            background-color: #219653;
-        }
-        .btn-test {
-            background-color: #2980b9;
-            margin-top: 20px;
-        }
-    </style>
-</head>
-<body>
+let signalTimer = null;
+let currentSignal = null;
 
-    <h1>Robot Signaux XAU/USD</h1>
-    <p>Gère tes positions en toute sérénité (fenêtre de 5 min)</p>
+// Fonction déclenchée lors de l'arrivée d'un signal sur l'or (XAU/USD)
+function genererSignalOr(typeSignal, prixCible) {
+    const dureeValidite = 5 * 60; // 5 minutes en secondes
+    let tempsRestant = dureeValidite;
 
-    <!-- Zone où le signal et le compte à rebours s'affichent -->
-    <div id="signal-container">
-        <p>En attente du prochain signal sur l'or (XAU/USD)...</p>
-    </div>
+    currentSignal = {
+        type: typeSignal, // 'BUY' (CALL) ou 'SELL' (PUT)
+        price: prixCible,
+        actif: 'XAU/USD'
+    };
 
-    <!-- Bouton pour valider et prendre position -->
-    <button onclick="validerEtExecuterPosition()">Prendre position (5 min)</button>
+    afficherInterfaceSignal(currentSignal, tempsRestant);
 
-    <!-- Bouton de test rapide (pour simuler l'arrivée d'un signal sur ton écran) -->
-    <br>
-    <button class="btn-test" onclick="simulerArriveeSignal()">Simuler un Signal d'Achat</button>
+    // Lancer le compte à rebours
+    clearInterval(signalTimer);
+    signalTimer = setInterval(() => {
+        tempsRestant--;
+        mettreAJourAffichageTemps(tempsRestant);
 
-    <!-- Liaison avec le fichier JavaScript -->
-    <script src="script.js"></script>
-</body>
-</html>
+        if (tempsRestant <= 0) {
+            clearInterval(signalTimer);
+            annulerSignal();
+        }
+    }, 1000);
+}
+
+// Met à jour l'affichage visuel du signal et du temps restant
+function afficherInterfaceSignal(signal, tempsRestant) {
+    const minutes = Math.floor(tempsRestant / 60);
+    const secondes = tempsRestant % 60;
+    const container = document.getElementById("signal-container");
+    
+    container.innerHTML = `
+        <h3 style="color: ${signal.type === 'BUY' ? '#27ae60' : '#e74c3c'};">
+            Signal Actif : ${signal.type} sur Or (XAU/USD)
+        </h3>
+        <p>Prix cible : <b>${signal.price}</b></p>
+        <p style="font-size: 1.2rem; color: #f1c40f;">
+            <strong>Temps pour valider : ${minutes}m ${secondes < 10 ? '0' : ''}${secondes}s</strong>
+        </p>
+    `;
+}
+
+function mettreAJourAffichageTemps(tempsRestant) {
+    if (currentSignal) {
+        afficherInterfaceSignal(currentSignal, tempsRestant);
+    }
+}
+
+// Annule automatiquement le signal si le temps est écoulé
+function annulerSignal() {
+    currentSignal = null;
+    document.getElementById("signal-container").innerHTML = `
+        <p style='color: #e74c3c;'>Signal expiré (délai de 5 min dépassé).</p>
+        <p>En attente d'une nouvelle opportunité...</p>
+    `;
+}
+
+// Fonction de test pour simuler un signal manuellement depuis ton téléphone
+function simulerArriveeSignal() {
+    const prixFictif = (2350 + Math.random() * 5).toFixed(2);
+    genererSignalOr('BUY', prixFictif);
+}
+
+// Exécute la position sur Deriv lorsque tu cliques sur le bouton
+function validerEtExecuterPosition() {
+    if (!currentSignal) {
+        alert("Aucun signal actif ou signal expiré ! Attends le prochain signal.");
+        return;
+    }
+
+    // Connexion au WebSocket de l'API Deriv (app_id 1089 est l'ID de test public de Deriv)
+    const ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
+
+    ws.onopen = function() {
+        const ordreAchat = {
+            "buy": 1,
+            "price": currentSignal.price,
+            "parameters": {
+                "amount": 1, // Montant de la mise en USD
+                "basis": "stake",
+                "currency": "USD",
+                "symbol": "frxXAUUSD", // Code officiel de l'or sur Deriv
+                "duration": 5,
+                "duration_unit": "m", // Contrat d'une durée de 5 minutes
+                "contract_type": currentSignal.type === 'BUY' ? "CALL" : "PUT"
+            }
+        };
+        
+        ws.send(JSON.stringify(ordreAchat));
+    };
+
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        
+        if (data.msg_type === "buy") {
+            alert("Succès ! Position prise. ID du contrat : " + data.buy.contract_id);
+            clearInterval(signalTimer);
+            annulerSignal();
+            ws.close();
+        } else if (data.error) {
+            alert("Erreur Deriv : " + data.error.message);
+            ws.close();
+        }
+    };
+
+    ws.onerror = function(error) {
+        alert("Erreur de connexion WebSocket avec Deriv.");
+        ws.close();
+    };
+}
+            
