@@ -454,19 +454,14 @@ async function analyzeMarket() {
 
         await fetchCandles();
 
-        if (candles.length < 50) {
-            setText("signal-type", "EN ATTENTE");
-
-            setText(
-                "signal-reason",
-                `Historique insuffisant : ${candles.length} bougies reçues. Il faut au moins 50 bougies pour commencer l'analyse.`
-            );
-
-            setText("last-analysis", "Données insuffisantes");
-
-            setStatus("Prix connecté, historique insuffisant", false);
-
-            return;
+        if (candles.length < 30) {
+    setText("signal-type", "EN ATTENTE");
+    setText(
+        "signal-reason",
+        `Seulement ${candles.length} bougies disponibles. Attente de données supplémentaires.`
+    );
+    setText("last-analysis", "Données insuffisantes");
+    return;
         }
 
         const closes = candles.map(candle => candle.close);
