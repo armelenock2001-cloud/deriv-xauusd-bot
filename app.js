@@ -158,7 +158,7 @@ async function fetchCandles() {
             })
             .sort((a, b) => a.time - b.time);
 
-        if (candles.length < EMA_SLOW + 5) {
+        if (candles.length < EMA_SLOW) {
             throw new Error(
                 `Historique insuffisant : ${candles.length} bougies clôturées.`
             );
