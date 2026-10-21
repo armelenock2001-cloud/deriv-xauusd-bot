@@ -4,10 +4,13 @@
 // 1. CONFIGURATION
 // ============================================
 
-const WS_URL = "wss://ws.derivws.com/websockets/v3?app_id=1089";
+const APP_ID = 1089;
+const WS_URL =
+    "wss://ws.derivws.com/websockets/v3?app_id=" + APP_ID;
+
 const SYMBOL = "frxXAUUSD";
 
-const TIMEFRAME = 14400; // H4
+const TIMEFRAME = 14400;
 const CANDLE_COUNT = 300;
 
 const EMA_FAST = 50;
@@ -18,23 +21,28 @@ const ATR_PERIOD = 14;
 const SL_ATR_MULTIPLIER = 1.5;
 const REWARD_RISK_RATIO = 2;
 
+// ============================================
+// 2. VARIABLES
+// ============================================
+
 let ws = null;
 let reconnectTimer = null;
-let requestTimer = null;
-let requestTimeout = null;
+let refreshTimer = null;
+let timeoutTimer = null;
 
-let requestInProgress = false;
-let candles = [];
-let currentPrice = null;
 let requestId = 0;
 let historyRequestId = null;
+let requestInProgress = false;
+
+let candles = [];
+let currentPrice = null;
 let lastProcessedCandle = null;
 let lastSignalKey = null;
-let tickSubscribed = false;
+
 let stopped = false;
 
 // ============================================
-// 2. OUTILS
+// 3. OUTILS
 // ============================================
 
 function el(id) {
@@ -50,19 +58,22 @@ function setText(id, value) {
 }
 
 function logStatus(message, connected = false) {
+    setText("connection-status", message);
+
     const node = el("connection-status");
 
     if (node) {
-        node.textContent = message;
         node.className =
             "status " + (connected ? "connected" : "disconnected");
     }
 
-    console.log("[ROBOT H4]", message);
+    console.log("[XAU/USD]", message);
 }
 
 function formatPrice(value) {
-    return Number.isFinite(value) ? value.toFixed(2) : "--";
+    return Number.isFinite(value)
+        ? value.toFixed(2)
+        : "--";
 }
 
 function formatTime(epoch) {
@@ -70,22 +81,22 @@ function formatTime(epoch) {
 }
 
 function clearHistoryRequest() {
-    clearTimeout(requestTimeout);
-    requestTimeout = null;
+    clearTimeout(timeoutTimer);
 
+    timeoutTimer = null;
     requestInProgress = false;
     historyRequestId = null;
 }
 
 // ============================================
-// 3. CONNEXION DERIV
+// 4. CONNEXION À DERIV
 // ============================================
 
 function connectDeriv() {
     if (stopped) return;
 
     clearTimeout(reconnectTimer);
-    clearInterval(requestTimer);
+    clearInterval(refreshTimer);
 
     if (
         ws &&
@@ -97,42 +108,63 @@ function connectDeriv() {
 
     clearHistoryRequest();
 
-    tickSubscribed = false;
-
     logStatus("Connexion à Deriv...");
 
-    try {
-        ws = new WebSocket(WS_URL);
-    } catch (error) {
-        console.error("Erreur de création WebSocket :", error);
+    let socket;
 
-        logStatus("Impossible de créer la connexion.");
+    try {
+        socket = new WebSocket(WS_URL);
+        ws = socket;
+    } catch (error) {
+        console.error("Création WebSocket impossible :", error);
+
+        logStatus("Impossible de créer la connexion WebSocket.");
+
         scheduleReconnect();
 
         return;
     }
 
-    const socket = ws;
+    // Délai maximal de connexion.
+    const connectionTimeout = setTimeout(function () {
+        if (
+            socket === ws &&
+            socket.readyState === WebSocket.CONNECTING
+        ) {
+            logStatus("Connexion trop lente. Nouvelle tentative...");
+
+            socket.close();
+        }
+    }, 15000);
 
     socket.onopen = function () {
+        clearTimeout(connectionTimeout);
+
         if (socket !== ws) return;
 
-        console.log("Connexion WebSocket établie.");
+        console.log("WebSocket connecté à Deriv.");
 
-        logStatus("Connecté. Chargement des données...");
+        logStatus("Connexion établie. Vérification du marché...");
 
-        // Souscription au prix en temps réel.
+        // Demander d'abord le nom et les caractéristiques
+        // du symbole auprès de l'API.
+        socket.send(JSON.stringify({
+            active_symbols: "brief",
+            product_type: "basic",
+            req_id: ++requestId
+        }));
+
+        // Demander ensuite le prix en direct.
         socket.send(JSON.stringify({
             ticks: SYMBOL,
             subscribe: 1,
             req_id: ++requestId
         }));
 
-        // Première récupération des bougies.
+        // Demander l'historique H4.
         requestCandles();
 
-        // Actualisation toutes les 60 secondes.
-        requestTimer = setInterval(function () {
+        refreshTimer = setInterval(function () {
             requestCandles();
         }, 60000);
     };
@@ -149,9 +181,16 @@ function connectDeriv() {
             return;
         }
 
-        // Gestion des erreurs Deriv.
+        console.log("[DERIV]", data);
+
+        // ----------------------------------------
+        // GESTION DES ERREURS API
+        // ----------------------------------------
+
         if (data.error) {
-            console.error("Erreur Deriv :", data.error);
+            const message = data.error.message || "Erreur inconnue";
+
+            console.error("Erreur API Deriv :", data.error);
 
             if (
                 data.echo_req &&
@@ -160,18 +199,43 @@ function connectDeriv() {
                 clearHistoryRequest();
             }
 
-            logStatus("Erreur Deriv : " + data.error.message);
+            logStatus("Erreur Deriv : " + message);
 
             return;
         }
 
-        // ------------------------------------
+        // ----------------------------------------
+        // VÉRIFICATION DES SYMBOLES
+        // ----------------------------------------
+
+        if (data.msg_type === "active_symbols") {
+            const symbols = data.active_symbols || [];
+
+            const gold = symbols.find(function (item) {
+                return item.symbol === SYMBOL;
+            });
+
+            if (gold) {
+                console.log(
+                    "Symbole trouvé :",
+                    gold.symbol,
+                    gold.display_name
+                );
+            } else {
+                console.warn(
+                    "Le symbole " + SYMBOL +
+                    " n'apparaît pas dans cette liste."
+                );
+            }
+
+            return;
+        }
+
+        // ----------------------------------------
         // PRIX EN TEMPS RÉEL
-        // ------------------------------------
+        // ----------------------------------------
 
-        if (data.msg_type === "tick") {
-            tickSubscribed = true;
-
+        if (data.msg_type === "tick" && data.tick) {
             currentPrice = Number(data.tick.quote);
 
             if (Number.isFinite(currentPrice)) {
@@ -182,21 +246,26 @@ function connectDeriv() {
                     new Date(data.tick.epoch * 1000)
                         .toLocaleTimeString("fr-FR")
                 );
-            }
 
-            if (candles.length > 0) {
-                logStatus(
-                    "Connecté — prix en direct et analyse H4",
-                    true
-                );
+                if (candles.length > 0) {
+                    logStatus(
+                        "Connecté à Deriv — prix en direct",
+                        true
+                    );
+                } else {
+                    logStatus(
+                        "Prix reçu. Chargement de l'historique...",
+                        true
+                    );
+                }
             }
 
             return;
         }
 
-        // ------------------------------------
+        // ----------------------------------------
         // HISTORIQUE DES BOUGIES
-        // ------------------------------------
+        // ----------------------------------------
 
         if (data.msg_type === "history") {
             if (
@@ -212,7 +281,7 @@ function connectDeriv() {
                 !data.history ||
                 !Array.isArray(data.history.candles)
             ) {
-                logStatus("Aucune bougie reçue de Deriv.");
+                logStatus("Historique H4 indisponible.");
                 return;
             }
 
@@ -239,19 +308,16 @@ function connectDeriv() {
                     return a.epoch - b.epoch;
                 });
 
-            console.log(
-                "Bougies reçues :",
-                candles.length
-            );
+            console.log("Bougies H4 reçues :", candles.length);
 
             if (candles.length === 0) {
-                logStatus("Aucune bougie H4 disponible.");
+                logStatus("Aucune bougie disponible.");
                 return;
             }
 
             analyzeMarket();
 
-            if (tickSubscribed) {
+            if (Number.isFinite(currentPrice)) {
                 logStatus(
                     "Connecté — prix en direct et analyse H4",
                     true
@@ -262,6 +328,16 @@ function connectDeriv() {
                     true
                 );
             }
+
+            return;
+        }
+
+        // ----------------------------------------
+        // AUTRES RÉPONSES
+        // ----------------------------------------
+
+        if (data.msg_type === "ping") {
+            console.log("Réponse ping reçue.");
         }
     };
 
@@ -270,39 +346,43 @@ function connectDeriv() {
 
         console.error("Erreur WebSocket :", error);
 
-        logStatus("Erreur de connexion à Deriv.");
+        logStatus(
+            "Erreur WebSocket. Vérifie Internet et la connexion Deriv."
+        );
     };
 
-    // ------------------------------------
-    // FERMETURE ET RECONNEXION
-    // ------------------------------------
-
     socket.onclose = function (event) {
+        clearTimeout(connectionTimeout);
+
         if (socket !== ws) return;
 
-        console.log(
+        console.warn(
             "Connexion fermée :",
             event.code,
             event.reason
         );
 
-        clearInterval(requestTimer);
-        requestTimer = null;
+        clearInterval(refreshTimer);
+        refreshTimer = null;
 
         clearHistoryRequest();
 
-        tickSubscribed = false;
         ws = null;
 
         if (!stopped) {
             logStatus(
-                "Déconnecté. Reconnexion dans 5 secondes..."
+                "Connexion fermée (code " + event.code +
+                "). Reconnexion dans 5 secondes..."
             );
 
             scheduleReconnect();
         }
     };
 }
+
+// ============================================
+// 5. RECONNEXION
+// ============================================
 
 function scheduleReconnect() {
     clearTimeout(reconnectTimer);
@@ -315,7 +395,7 @@ function scheduleReconnect() {
 }
 
 // ============================================
-// 4. RÉCUPÉRATION DES BOUGIES H4
+// 6. RÉCUPÉRATION DES BOUGIES
 // ============================================
 
 function requestCandles() {
@@ -328,57 +408,48 @@ function requestCandles() {
     }
 
     requestInProgress = true;
-    historyRequestId = ++requestId;
 
-    const sentId = historyRequestId;
-
-    const message = {
-        ticks_history: SYMBOL,
-        style: "candles",
-        granularity: TIMEFRAME,
-        count: CANDLE_COUNT,
-        end: "latest",
-        req_id: sentId
-    };
+    const id = ++requestId;
+    historyRequestId = id;
 
     try {
-        ws.send(JSON.stringify(message));
+        ws.send(JSON.stringify({
+            ticks_history: SYMBOL,
+            style: "candles",
+            granularity: TIMEFRAME,
+            count: CANDLE_COUNT,
+            end: "latest",
+            req_id: id
+        }));
     } catch (error) {
-        console.error("Erreur lors de la demande des bougies :", error);
+        console.error("Envoi de la demande impossible :", error);
 
         clearHistoryRequest();
 
         return;
     }
 
-    requestTimeout = setTimeout(function () {
-        if (
-            requestInProgress &&
-            historyRequestId === sentId
-        ) {
-            console.warn("Délai de réponse Deriv dépassé.");
+    timeoutTimer = setTimeout(function () {
+        if (historyRequestId === id) {
+            console.warn("Réponse historique trop lente.");
 
             clearHistoryRequest();
 
-            if (candles.length === 0) {
-                logStatus(
-                    "Délai dépassé. Vérifie la connexion Deriv."
-                );
-            }
+            logStatus(
+                "Délai dépassé pendant le chargement des bougies."
+            );
         }
     }, 15000);
 }
 
 // ============================================
-// 5. CALCUL EMA
+// 7. EMA
 // ============================================
 
 function calculateEMA(values, period) {
     const result = new Array(values.length).fill(null);
 
-    if (values.length < period) {
-        return result;
-    }
+    if (values.length < period) return result;
 
     let sum = 0;
 
@@ -393,9 +464,7 @@ function calculateEMA(values, period) {
     const multiplier = 2 / (period + 1);
 
     for (let i = period; i < values.length; i++) {
-        ema =
-            (values[i] - ema) * multiplier + ema;
-
+        ema = (values[i] - ema) * multiplier + ema;
         result[i] = ema;
     }
 
@@ -403,15 +472,13 @@ function calculateEMA(values, period) {
 }
 
 // ============================================
-// 6. CALCUL RSI
+// 8. RSI
 // ============================================
 
 function calculateRSI(values, period = 14) {
     const result = new Array(values.length).fill(null);
 
-    if (values.length <= period) {
-        return result;
-    }
+    if (values.length <= period) return result;
 
     let gains = 0;
     let losses = 0;
@@ -419,50 +486,49 @@ function calculateRSI(values, period = 14) {
     for (let i = 1; i <= period; i++) {
         const difference = values[i] - values[i - 1];
 
-        if (difference > 0) {
-            gains += difference;
-        } else {
-            losses -= difference;
-        }
+        gains += Math.max(difference, 0);
+        losses += Math.max(-difference, 0);
     }
 
     let averageGain = gains / period;
     let averageLoss = losses / period;
 
-    result[period] = averageLoss === 0
-        ? (averageGain === 0 ? 50 : 100)
-        : 100 - 100 / (1 + averageGain / averageLoss);
+    function getRSI(gain, loss) {
+        if (gain === 0 && loss === 0) return 50;
+        if (loss === 0) return 100;
+
+        return 100 - 100 / (1 + gain / loss);
+    }
+
+    result[period] = getRSI(averageGain, averageLoss);
 
     for (let i = period + 1; i < values.length; i++) {
         const difference = values[i] - values[i - 1];
 
-        const gain = Math.max(difference, 0);
-        const loss = Math.max(-difference, 0);
+        averageGain = (
+            averageGain * (period - 1) +
+            Math.max(difference, 0)
+        ) / period;
 
-        averageGain =
-            (averageGain * (period - 1) + gain) / period;
+        averageLoss = (
+            averageLoss * (period - 1) +
+            Math.max(-difference, 0)
+        ) / period;
 
-        averageLoss =
-            (averageLoss * (period - 1) + loss) / period;
-
-        result[i] = averageLoss === 0
-            ? (averageGain === 0 ? 50 : 100)
-            : 100 - 100 / (1 + averageGain / averageLoss);
+        result[i] = getRSI(averageGain, averageLoss);
     }
 
     return result;
 }
 
 // ============================================
-// 7. CALCUL ATR
+// 9. ATR
 // ============================================
 
 function calculateATR(data, period = 14) {
     const result = new Array(data.length).fill(null);
 
-    if (data.length <= period) {
-        return result;
-    }
+    if (data.length <= period) return result;
 
     const ranges = [];
 
@@ -488,12 +554,12 @@ function calculateATR(data, period = 14) {
     }
 
     average /= period;
-
     result[period] = average;
 
     for (let i = period + 1; i < data.length; i++) {
-        average =
-            (average * (period - 1) + ranges[i]) / period;
+        average = (
+            average * (period - 1) + ranges[i]
+        ) / period;
 
         result[i] = average;
     }
@@ -502,15 +568,15 @@ function calculateATR(data, period = 14) {
 }
 
 // ============================================
-// 8. ANALYSE AUTOMATIQUE H4
+// 10. ANALYSE H4
 // ============================================
 
 function analyzeMarket() {
     if (candles.length < EMA_SLOW + 5) {
         setText(
             "signal-reason",
-            "Historique insuffisant : " + candles.length +
-            " bougies. Le robot a besoin d'au moins 205 bougies."
+            "Historique insuffisant : " +
+            candles.length + " bougies reçues."
         );
 
         return;
@@ -518,7 +584,6 @@ function analyzeMarket() {
 
     const now = Math.floor(Date.now() / 1000);
 
-    // On conserve uniquement les bougies clôturées.
     const closedCandles = candles.filter(function (c) {
         return c.epoch + TIMEFRAME <= now;
     });
@@ -526,15 +591,13 @@ function analyzeMarket() {
     if (closedCandles.length < EMA_SLOW + 5) {
         setText(
             "signal-reason",
-            "En attente d'un historique H4 suffisant."
+            "En attente d'au moins 205 bougies H4 clôturées."
         );
 
         return;
     }
 
-    const closes = closedCandles.map(function (c) {
-        return c.close;
-    });
+    const closes = closedCandles.map(c => c.close);
 
     const ema50 = calculateEMA(closes, EMA_FAST);
     const ema200 = calculateEMA(closes, EMA_SLOW);
@@ -568,25 +631,21 @@ function analyzeMarket() {
     setText("rsi", r.toFixed(2));
     setText("atr", formatPrice(a));
 
-    // Tendance générale.
     let trend = "Neutre";
-
-    const trendNode = el("market-tendance");
 
     if (e50 > e200 && candle.close > e50) {
         trend = "Haussière";
-
-        if (trendNode) {
-            trendNode.style.color = "#27ae60";
-        }
     } else if (e50 < e200 && candle.close < e50) {
         trend = "Baissière";
+    }
 
-        if (trendNode) {
-            trendNode.style.color = "#c0392b";
-        }
-    } else if (trendNode) {
-        trendNode.style.color = "#f1c40f";
+    const trendNode = el("market-tendance");
+
+    if (trendNode) {
+        trendNode.style.color =
+            trend === "Haussière" ? "#27ae60" :
+            trend === "Baissière" ? "#c0392b" :
+            "#f1c40f";
     }
 
     setText("market-tendance", trend);
@@ -595,11 +654,10 @@ function analyzeMarket() {
         "last-analysis",
         "Dernière analyse : " +
         new Date().toLocaleString("fr-FR") +
-        " | Bougie clôturée : " +
+        " | Bougie : " +
         formatTime(candle.epoch)
     );
 
-    // Éviter de traiter plusieurs fois la même bougie.
     if (lastProcessedCandle === candle.epoch) {
         return;
     }
@@ -609,7 +667,6 @@ function analyzeMarket() {
     const bullish = candle.close > candle.open;
     const bearish = candle.close < candle.open;
 
-    // Confirmation BUY.
     const buySignal =
         e50 > e200 &&
         candle.close > e50 &&
@@ -618,7 +675,6 @@ function analyzeMarket() {
         bullish &&
         candle.close > previousCandle.close;
 
-    // Confirmation SELL.
     const sellSignal =
         e50 < e200 &&
         candle.close < e50 &&
@@ -631,10 +687,7 @@ function analyzeMarket() {
         setText(
             "signal-reason",
             "Aucun signal confirmé. Tendance : " +
-            trend +
-            " | RSI : " +
-            r.toFixed(2) +
-            ". En attente de confirmations techniques."
+            trend + " | RSI : " + r.toFixed(2)
         );
 
         return;
@@ -643,15 +696,11 @@ function analyzeMarket() {
     const type = buySignal ? "BUY" : "SELL";
     const signalKey = type + "-" + candle.epoch;
 
-    if (signalKey === lastSignalKey) {
-        return;
-    }
+    if (signalKey === lastSignalKey) return;
 
     lastSignalKey = signalKey;
 
-    // Entrée théorique à la clôture de la bougie.
     const entry = candle.close;
-
     const risk = a * SL_ATR_MULTIPLIER;
 
     const sl = type === "BUY"
@@ -674,12 +723,12 @@ function analyzeMarket() {
             " détecté sur H4. EMA 50/200 alignées, RSI " +
             r.toFixed(2) +
             ", ATR " + formatPrice(a) +
-            ". Ratio théorique gain/risque : 1:2."
+            ". Ratio théorique : 1:2."
     });
 }
 
 // ============================================
-// 9. AFFICHAGE DES SIGNAUX
+// 11. AFFICHAGE DU SIGNAL
 // ============================================
 
 function triggerSignal(signal) {
@@ -740,7 +789,7 @@ function triggerSignal(signal) {
 }
 
 // ============================================
-// 10. BOUTON ACTUALISER
+// 12. BOUTON ACTUALISER
 // ============================================
 
 const refreshButton = el("refresh-button");
@@ -748,7 +797,7 @@ const refreshButton = el("refresh-button");
 if (refreshButton) {
     refreshButton.addEventListener("click", function () {
         if (requestInProgress) {
-            logStatus("Récupération des données en cours...");
+            logStatus("Chargement des données en cours...");
             return;
         }
 
@@ -757,7 +806,7 @@ if (refreshButton) {
 }
 
 // ============================================
-// 11. CONNEXION INTERNET
+// 13. INTERNET
 // ============================================
 
 window.addEventListener("online", function () {
@@ -767,19 +816,19 @@ window.addEventListener("online", function () {
 });
 
 window.addEventListener("offline", function () {
-    logStatus("Internet indisponible. En attente du réseau...");
+    logStatus("Internet indisponible.");
 });
 
 // ============================================
-// 12. FERMETURE DE LA PAGE
+// 14. FERMETURE
 // ============================================
 
 window.addEventListener("beforeunload", function () {
     stopped = true;
 
-    clearInterval(requestTimer);
     clearTimeout(reconnectTimer);
-    clearTimeout(requestTimeout);
+    clearInterval(refreshTimer);
+    clearTimeout(timeoutTimer);
 
     if (ws) {
         ws.close();
@@ -787,7 +836,5 @@ window.addEventListener("beforeunload", function () {
 });
 
 // ============================================
-// 13. DÉMARRAGE AUTOMATIQUE
-// ============================================
-
-connectDeriv();
+// 15. DÉMARRAGE
+// ==============
