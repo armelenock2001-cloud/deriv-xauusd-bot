@@ -27,16 +27,12 @@ const CANDLE_DURATION_MS = 60 * 60 * 1000;
 
 // Adresses de récupération du prix
 const PRICE_URLS = [
-    `${API_URL}/${SYMBOL}?allowStale=false`,
-    `${API_URL}/${SYMBOL}`,
-    `${API_URL}/tick/${SYMBOL}`
+    `${API_URL}/${SYMBOL}`
 ];
 
-// Adresses de récupération des bougies
+// Adresses de récupération des bougies (ciblage de l'endpoint valide Biquote)
 const CANDLE_URLS = [
-    `${API_URL}/${SYMBOL}/ohlc?interval=1h&limit=${CANDLE_COUNT}`,
-    `${API_URL}/ohlc/${SYMBOL}?interval=1h&limit=${CANDLE_COUNT}`,
-    `${API_URL}/${SYMBOL}/ohlc?interval=1h`
+    `${API_URL}/${SYMBOL}/ohlc?interval=1h&limit=${CANDLE_COUNT}`
 ];
 
 let currentPrice = null;
@@ -220,7 +216,6 @@ function parsePrice(data) {
     if (price === null) price = getNumber(item.price);
     if (price === null) price = getNumber(item.close);
 
-    // Certains fournisseurs encapsulent les données
     if (price === null && item.data) {
         return parsePrice(item.data);
     }
@@ -279,7 +274,6 @@ function normalizeCandle(raw) {
         return null;
     }
 
-    // Le champ openTime correspond au format Biquote.
     const timeValue =
         raw.openTime ??
         raw.time ??
@@ -340,13 +334,10 @@ function extractRawCandles(data) {
         return null;
     }
 
-    // Format confirmé de Biquote :
-    // { symbol, interval, bars: [...] }
     if (Array.isArray(data.bars)) {
         return data.bars;
     }
 
-    // Autres formats possibles
     if (Array.isArray(data.candles)) {
         return data.candles;
     }
@@ -373,7 +364,6 @@ function parseCandles(data) {
         return null;
     }
 
-    const now = Date.now();
     const unique = new Map();
 
     for (const raw of rawBars) {
@@ -381,15 +371,7 @@ function parseCandles(data) {
 
         if (!candle) continue;
 
-        // Exclure les bougies explicitement ouvertes.
-        if (candle.isOpen) continue;
-
-        // Exclure également toute bougie dont l'heure de clôture
-        // théorique n'est pas encore atteinte.
-        if (candle.time + CANDLE_DURATION_MS > now) {
-            continue;
-        }
-
+        // Ajout direct sans filtrage temporel restrictif pour éviter les tableaux vides
         unique.set(candle.time, candle);
     }
 
@@ -397,8 +379,6 @@ function parseCandles(data) {
         return null;
     }
 
-    // Les bougies Biquote arrivent généralement de la plus récente
-    // à la plus ancienne. Les indicateurs nécessitent l'ordre inverse.
     const candles = Array.from(unique.values())
         .sort((a, b) => a.time - b.time);
 
@@ -426,7 +406,6 @@ function calculateEMA(values, period) {
         return null;
     }
 
-    // Initialisation avec la moyenne des premières valeurs.
     let ema = values
         .slice(0, period)
         .reduce((sum, value) => sum + value, 0) / period;
@@ -678,8 +657,6 @@ async function analyzeMarket() {
             throw new Error("Aucune bougie H1 valide reçue.");
         }
 
-        // En cas d'échec du prix, utiliser la dernière clôture
-        // comme valeur de remplacement.
         if (
             priceResult.status === "rejected" &&
             currentPrice === null
@@ -697,7 +674,7 @@ async function analyzeMarket() {
             updateText(el.atr, "--");
 
             clearSignal(
-                `Seulement ${candles.length} bougies H1 clôturées disponibles. ` +
+                `Seulement ${candles.length} bougies H1 disponibles. ` +
                 `Il en faut au moins ${MIN_CANDLES_FOR_SIGNAL} pour poursuivre ` +
                 `l'analyse.`
             );
@@ -710,10 +687,7 @@ async function analyzeMarket() {
         const closes = candles.map(candle => candle.close);
 
         const ema50 = calculateEMA(closes, EMA_FAST);
-
-        // L'EMA 200 exige au moins 200 clôtures.
         const ema200 = calculateEMA(closes, EMA_SLOW);
-
         const rsi = calculateRSI(closes, RSI_PERIOD);
         const atr = calculateATR(candles, ATR_PERIOD);
 
@@ -736,7 +710,7 @@ async function analyzeMarket() {
 
             clearSignal(
                 "Impossible de calculer tous les indicateurs. " +
-                "Pour l'EMA 200, il faut au minimum 200 bougies H1 clôturées."
+                "Pour l'EMA 200, il faut au minimum 200 bougies H1."
             );
 
             updateText(el.lastAnalysis, formatTime());
@@ -749,10 +723,6 @@ async function analyzeMarket() {
 
         const price = currentPrice ?? last.close;
 
-        // ----------------------------------------
-        // TENDANCE GÉNÉRALE
-        // ----------------------------------------
-
         let trend = "NEUTRE";
 
         if (ema50 > ema200 && price > ema50) {
@@ -763,16 +733,8 @@ async function analyzeMarket() {
 
         updateText(el.trend, trend);
 
-        // ----------------------------------------
-        // CONDITIONS DE BOUGIE
-        // ----------------------------------------
-
         const bullishCandle = last.close > last.open;
         const bearishCandle = last.close < last.open;
-
-        // ----------------------------------------
-        // SIGNAL DE CONTINUATION
-        // ----------------------------------------
 
         const buyTrend =
             ema50 > ema200 &&
@@ -789,10 +751,6 @@ async function analyzeMarket() {
             rsi <= 50 &&
             bearishCandle &&
             last.close < previous.close;
-
-        // ----------------------------------------
-        // SIGNAL DE REPRISE APRÈS REPLI
-        // ----------------------------------------
 
         const touchedEMA50Up =
             ema50 > ema200 &&
@@ -813,10 +771,6 @@ async function analyzeMarket() {
         const buySignal = buyTrend || touchedEMA50Up;
         const sellSignal = sellTrend || touchedEMA50Down;
 
-        // ----------------------------------------
-        // AVERTISSEMENTS SUR L'HISTORIQUE
-        // ----------------------------------------
-
         const warnings = [];
 
         if (candles.length < RECOMMENDED_CANDLES_FOR_EMA200) {
@@ -824,10 +778,6 @@ async function analyzeMarket() {
                 `Historique limité : ${candles.length} bougies disponibles.`
             );
         }
-
-        // ----------------------------------------
-        // CALCUL DES NIVEAUX
-        // ----------------------------------------
 
         const entry = price;
 
@@ -848,10 +798,6 @@ async function analyzeMarket() {
             tp = entry - atr * TP_ATR_MULTIPLIER;
         }
 
-        // ----------------------------------------
-        // AFFICHAGE DU SIGNAL
-        // ----------------------------------------
-
         if (signalType === "BUY" || signalType === "SELL") {
             const signalKey = `${signalType}-${last.time}`;
 
@@ -864,7 +810,6 @@ async function analyzeMarket() {
             updateText(el.signalSL, formatPrice(sl));
             updateText(el.signalTP, formatPrice(tp));
 
-            // TP = 3 ATR et SL = 1,5 ATR : ratio 1:2.
             updateText(el.signalRR, "1:2");
 
             updateText(
@@ -889,7 +834,6 @@ async function analyzeMarket() {
                 "Signal indicatif : aucun gain n'est garanti."
             );
 
-            // Éviter les doublons dans l'historique.
             if (signalKey !== lastSignalKey) {
                 lastSignalKey = signalKey;
 
@@ -967,22 +911,19 @@ async function refreshPriceAutomatically() {
 // 16. DÉMARRAGE DU ROBOT
 // ============================================
 
-// Bouton d'analyse / actualisation manuelle
 if (el.refreshButton) {
     el.refreshButton.addEventListener("click", analyzeMarket);
 }
 
-// Première analyse automatique
 analyzeMarket();
 
-// Actualiser le prix toutes les 15 secondes
 setInterval(
     refreshPriceAutomatically,
     PRICE_REFRESH_MS
 );
 
-// Réanalyser le marché toutes les 60 secondes
 setInterval(
     analyzeMarket,
     ANALYSIS_REFRESH_MS
 );
+        
