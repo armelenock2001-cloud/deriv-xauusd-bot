@@ -1,71 +1,136 @@
-<!DOCTYPE html>
-<html lang="fr">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Signal XAU/USD - Deriv</title>
-    <style>
-        body {
-            font-family: Arial, sans-serif;
-            background-color: #121212;
-            color: #ffffff;
-            text-align: center;
-            padding: 20px;
-            margin: 0;
-        }
-        h1 {
-            font-size: 1.5rem;
-            color: #f39c12;
-        }
-        #signal-container {
-            background-color: #1e1e1e;
-            border: 2px dashed #444;
-            padding: 15px;
-            margin: 20px auto;
-            border-radius: 8px;
-            max-width: 400px;
-        }
-        button {
-            background-color: #27ae60;
-            color: white;
-            border: none;
-            padding: 15px 30px;
-            font-size: 1.1rem;
-            font-weight: bold;
-            border-radius: 8px;
-            cursor: pointer;
-            width: 100%;
-            max-width: 400px;
-            margin-top: 10px;
-        }
-        button:active {
-            background-color: #219653;
-        }
-        .btn-test {
-            background-color: #2980b9;
-            margin-top: 20px;
-        }
-    </style>
-</head>
-<body>
+const wsUrl = "wss://green.derivws.com/websockets/v3?app_id=1089";
+let ws;
+const symbol = "frxXAUUSD"; 
 
-    <h1>Robot Signaux XAU/USD</h1>
-    <p>Gère tes positions en toute sérénité (fenêtre de 5 min)</p>
+// Jeton API personnel intégré
+const apiToken = "Pat_064de0775d182d7c5acfcc234bebfec26bf0ef9f42b6867046dacb23d30a1572"; 
 
-    <!-- Zone où le signal et le compte à rebours s'affichent -->
-    <div id="signal-container">
-        <p>En attente du prochain signal sur l'or (XAU/USD)...</p>
-    </div>
+let priceHistory = [];
+const maxHistoryLength = 50;
 
-    <!-- Bouton pour valider et prendre position -->
-    <button onclick="validerEtExecuterPosition()">Prendre position (5 min)</button>
+function logStatus(message, isConnected = false) {
+    const statusEl = document.getElementById("connection-status");
+    statusEl.textContent = message;
+    statusEl.className = isConnected ? "status connected" : "status disconnected";
+    console.log(message);
+}
 
-    <!-- Bouton de test rapide (pour simuler l'arrivée d'un signal sur ton écran) -->
-    <br>
-    <button class="btn-test" onclick="simulerArriveeSignal()">Simuler un Signal d'Achat</button>
+function connectDeriv() {
+    logStatus("Connexion en cours...");
+    ws = new WebSocket(wsUrl);
 
-    <!-- Liaison correcte avec ton fichier app.js -->
-    <script src="app.js"></script>
-</body>
-</html>
-            
+    ws.onopen = function() {
+        logStatus("Connecté. Authentification du compte...");
+        
+        // Authentification avec ton compte personnel
+        ws.send(JSON.stringify({
+            authorize: apiToken
+        }));
+    };
+
+    ws.onmessage = function(event) {
+        const data = JSON.parse(event.data);
+        console.log("Message reçu de Deriv :", data);
+
+        if (data.error) {
+            logStatus("Erreur : " + data.error.message);
+            return;
+        }
+
+        // Une fois l'autorisation réussie, on s'abonne aux prix de l'or
+        if (data.msg_type === "authorize") {
+            logStatus("Compte connecté (" + data.authorize.email + "). Abonnement...", true);
+            ws.send(JSON.stringify({
+                ticks: symbol,
+                subscribe: 1
+            }));
+        }
+        
+        // Réception des prix en temps réel
+        if (data.msg_type === "tick") {
+            const tick = data.tick;
+            const price = tick.quote;
+            const time = new Date(tick.epoch * 1000).toLocaleTimeString();
+
+            document.getElementById("current-price").textContent = price.toFixed(2);
+            document.getElementById("last-update").textContent = time;
+
+            priceHistory.push(price);
+            if (priceHistory.length > maxHistoryLength) {
+                priceHistory.shift();
+            }
+
+            analyzeMarket();
+        }
+    };
+
+    ws.onerror = function(error) {
+        logStatus("Erreur WebSocket");
+        console.error("WebSocket Error: ", error);
+    };
+
+    ws.onclose = function() {
+        logStatus("Déconnecté. Nouvelle tentative...");
+        setTimeout(connectDeriv, 5000);
+    };
+}
+
+function analyzeMarket() {
+    if (priceHistory.length < 10) return;
+
+    const recentPrices = priceHistory.slice(-10);
+    const firstPrice = recentPrices[0];
+    const lastPrice = recentPrices[recentPrices.length - 1];
+
+    let tendance = "Neutre / Consolidation";
+    if (lastPrice > firstPrice) {
+        tendance = "Haussière (Bullish)";
+        document.getElementById("market-tendance").style.color = "#27ae60";
+    } else if (lastPrice < firstPrice) {
+        tendance = "Baissière (Bearish)";
+        document.getElementById("market-tendance").style.color = "#c0392b";
+    }
+    document.getElementById("market-tendance").textContent = tendance;
+
+    const diff = lastPrice - firstPrice;
+    if (Math.abs(diff) > 0.05) {
+        const type = diff > 0 ? "BUY" : "SELL";
+        const entry = lastPrice;
+        const sl = type === "BUY" ? entry - 1.5 : entry + 1.5;
+        const tp = type === "BUY" ? entry + 3.0 : entry - 3.0;
+        
+        triggerSignal(type, entry, sl, tp, tendance, "Variation de prix détectée.");
+    }
+}
+
+let lastSignalType = null;
+function triggerSignal(type, entry, sl, tp, tendance, reason) {
+    if (type === lastSignalType) return;
+    lastSignalType = type;
+
+    const time = new Date().toLocaleTimeString();
+
+    const badge = document.getElementById("signal-type");
+    badge.textContent = type;
+    badge.className = `badge ${type.toLowerCase()}`;
+
+    document.getElementById("signal-entry").textContent = entry.toFixed(2);
+    document.getElementById("signal-sl").textContent = sl.toFixed(2);
+    document.getElementById("signal-tp").textContent = tp.toFixed(2);
+    document.getElementById("signal-conf").textContent = "80%";
+    document.getElementById("signal-reason").textContent = reason;
+
+    const tbody = document.querySelector("#history-table tbody");
+    const row = document.createElement("tr");
+    row.innerHTML = `
+        <td>${time}</td>
+        <td><span class="badge ${type.toLowerCase()}">${type}</span></td>
+        <td>${entry.toFixed(2)}</td>
+        <td>SL: ${sl.toFixed(2)} / TP: ${tp.toFixed(2)}</td>
+        <td>${tendance}</td>
+    `;
+    tbody.prepend(row);
+}
+
+window.onload = connectDeriv;
+        
