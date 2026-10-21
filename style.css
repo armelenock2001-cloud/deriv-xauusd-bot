@@ -1,0 +1,96 @@
+body {
+    font-family: Arial, sans-serif;
+    background-color: #121824;
+    color: #f5f6fa;
+    margin: 0;
+    padding: 20px;
+}
+
+header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    border-bottom: 2px solid #2f3640;
+    padding-bottom: 15px;
+    margin-bottom: 20px;
+}
+
+h1, h3 {
+    margin: 0;
+}
+
+.status {
+    padding: 8px 15px;
+    border-radius: 5px;
+    font-weight: bold;
+    font-size: 0.9rem;
+}
+
+.status.connected {
+    background-color: #27ae60;
+    color: white;
+}
+
+.status.disconnected {
+    background-color: #c0392b;
+    color: white;
+}
+
+.dashboard {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 20px;
+    margin-bottom: 20px;
+}
+
+.card {
+    background-color: #1e272e;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+}
+
+.card.highlight {
+    border: 1px solid #487eb0;
+}
+
+.value {
+    font-size: 1.8rem;
+    font-weight: bold;
+    margin: 10px 0;
+}
+
+.badge {
+    display: inline-block;
+    padding: 6px 12px;
+    border-radius: 4px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.badge.buy { background-color: #27ae60; color: white; }
+.badge.sell { background-color: #c0392b; color: white; }
+.badge.none { background-color: #718093; color: white; }
+
+details-section, .history-section {
+    background-color: #1e272e;
+    padding: 20px;
+    border-radius: 8px;
+    margin-bottom: 20px;
+}
+
+table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-top: 10px;
+}
+
+th, td {
+    padding: 10px;
+    text-align: left;
+    border-bottom: 1px solid #2f3640;
+}
+
+th {
+    color: #718093;
+  }
