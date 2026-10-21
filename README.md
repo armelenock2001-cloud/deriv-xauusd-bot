@@ -1,0 +1,2 @@
+# deriv-xauusd-bot
+bot
