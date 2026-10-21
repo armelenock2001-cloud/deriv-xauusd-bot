@@ -374,20 +374,22 @@ return closedCandles;
 // ============================================
 
 function calculateEMA(values, period) {
-if (values.length < period) return null;
+function calculateEMA(values, period) {
+    if (values.length === 0) return null;
 
-let ema = values
-    .slice(0, period)
-    .reduce((sum, value) => sum + value, 0) / period;
+    const seedLength = Math.min(values.length, period);
 
-const multiplier = 2 / (period + 1);
+    let ema = values
+        .slice(0, seedLength)
+        .reduce((sum, value) => sum + value, 0) / seedLength;
 
-for (let i = period; i < values.length; i++) {
-    ema = (values[i] - ema) * multiplier + ema;
-}
+    const multiplier = 2 / (period + 1);
 
-return ema;
+    for (let i = seedLength; i < values.length; i++) {
+        ema = (values[i] - ema) * multiplier + ema;
+    }
 
+    return ema;
 }
 
 // ============================================
