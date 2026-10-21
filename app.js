@@ -1,6 +1,10 @@
+
 const wsUrl = "wss://ws.derivws.com/websockets/v3?app_id=1089";
 let ws;
-const symbol = "frxXAUUSD"; // Test avec le format Forex officiel de Deriv
+const symbol = "frxXAUUSD"; 
+
+// Jeton API personnel intégré
+const apiToken = "Pat_064de0775d182d7c5acfcc234bebfec26bf0ef9f42b6867046dacb23d30a1572"; 
 
 let priceHistory = [];
 const maxHistoryLength = 50;
@@ -17,12 +21,11 @@ function connectDeriv() {
     ws = new WebSocket(wsUrl);
 
     ws.onopen = function() {
-        logStatus("Connecté à Deriv. Abonnement...", true);
+        logStatus("Connecté. Authentification du compte...");
         
-        // S'abonner aux ticks en temps réel
+        // Authentification avec ton compte personnel
         ws.send(JSON.stringify({
-            ticks: symbol,
-            subscribe: 1
+            authorize: apiToken
         }));
     };
 
@@ -30,12 +33,21 @@ function connectDeriv() {
         const data = JSON.parse(event.data);
         console.log("Message reçu de Deriv :", data);
 
-        // Gestion des erreurs renvoyées par l'API
         if (data.error) {
-            logStatus("Erreur API : " + data.error.message);
+            logStatus("Erreur : " + data.error.message);
             return;
         }
+
+        // Une fois l'autorisation réussie, on s'abonne aux prix de l'or
+        if (data.msg_type === "authorize") {
+            logStatus("Compte connecté (" + data.authorize.email + "). Abonnement...", true);
+            ws.send(JSON.stringify({
+                ticks: symbol,
+                subscribe: 1
+            }));
+        }
         
+        // Réception des prix en temps réel
         if (data.msg_type === "tick") {
             const tick = data.tick;
             const price = tick.quote;
@@ -122,3 +134,4 @@ function triggerSignal(type, entry, sl, tp, tendance, reason) {
 }
 
 window.onload = connectDeriv;
+                       
