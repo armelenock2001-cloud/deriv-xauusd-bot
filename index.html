@@ -3,245 +3,68 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Robot d'Analyse XAU/USD - Temps Réel</title>
+    <title>Signal XAU/USD - Deriv</title>
     <style>
         body {
             font-family: Arial, sans-serif;
-            background-color: #121824;
-            color: #f5f6fa;
+            background-color: #121212;
+            color: #ffffff;
+            text-align: center;
+            padding: 20px;
             margin: 0;
-            padding: 20px;
         }
-        header {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            border-bottom: 2px solid #2f3640;
-            padding-bottom: 15px;
-            margin-bottom: 20px;
-            flex-wrap: wrap;
-            gap: 10px;
+        h1 {
+            font-size: 1.5rem;
+            color: #f39c12;
         }
-        h1, h3 { margin: 0; }
-        .status {
-            padding: 8px 15px;
-            border-radius: 5px;
-            font-weight: bold;
-            font-size: 0.9rem;
-        }
-        .status.connected { background-color: #27ae60; color: white; }
-        .status.disconnected { background-color: #c0392b; color: white; }
-        .dashboard {
-            display: grid;
-            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
-            gap: 20px;
-            margin-bottom: 20px;
-        }
-        .card {
-            background-color: #1e272e;
-            padding: 20px;
+        #signal-container {
+            background-color: #1e1e1e;
+            border: 2px dashed #444;
+            padding: 15px;
+            margin: 20px auto;
             border-radius: 8px;
-            box-shadow: 0 4px 6px rgba(0,0,0,0.3);
+            max-width: 400px;
         }
-        .card.highlight { border: 1px solid #487eb0; }
-        .value {
-            font-size: 1.8rem;
+        button {
+            background-color: #27ae60;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            font-size: 1.1rem;
             font-weight: bold;
-            margin: 10px 0;
-        }
-        .badge {
-            display: inline-block;
-            padding: 6px 12px;
-            border-radius: 4px;
-            font-weight: bold;
-            text-transform: uppercase;
-        }
-        .badge.buy { background-color: #27ae60; color: white; }
-        .badge.sell { background-color: #c0392b; color: white; }
-        .badge.none { background-color: #718093; color: white; }
-        .details-section, .history-section {
-            background-color: #1e272e;
-            padding: 20px;
             border-radius: 8px;
-            margin-bottom: 20px;
-        }
-        table {
+            cursor: pointer;
             width: 100%;
-            border-collapse: collapse;
+            max-width: 400px;
             margin-top: 10px;
-            font-size: 0.9rem;
         }
-        th, td {
-            padding: 12px;
-            text-align: left;
-            border-bottom: 1px solid #2f3640;
+        button:active {
+            background-color: #219653;
         }
-        th { color: #718093; }
+        .btn-test {
+            background-color: #2980b9;
+            margin-top: 20px;
+        }
     </style>
 </head>
 <body>
 
-    <header>
-        <h1>Robot XAU/USD (Direct)</h1>
-        <div id="connection-status" class="status disconnected">Connexion en cours...</div>
-    </header>
+    <h1>Robot Signaux XAU/USD</h1>
+    <p>Gère tes positions en toute sérénité (fenêtre de 5 min)</p>
 
-    <main>
-        <section class="dashboard">
-            <div class="card">
-                <h3>Prix Actuel (XAU/USD)</h3>
-                <p id="current-price" class="value">--.--</p>
-                <span class="update-time">Mis à jour à : <span id="last-update">--:--:--</span></span>
-            </div>
+    <!-- Zone où le signal et le compte à rebours s'affichent -->
+    <div id="signal-container">
+        <p>En attente du prochain signal sur l'or (XAU/USD)...</p>
+    </div>
 
-            <div class="card">
-                <h3>Tendance du Marché</h3>
-                <p id="market-tendance" class="value neutral">Analyse...</p>
-            </div>
+    <!-- Bouton pour valider et prendre position -->
+    <button onclick="validerEtExecuterPosition()">Prendre position (5 min)</button>
 
-            <div class="card highlight">
-                <h3>Dernier Signal</h3>
-                <div id="signal-display">
-                    <p><span id="signal-type" class="badge none">AUCUN SIGNAL</span></p>
-                    <p><strong>Entrée :</strong> <span id="signal-entry">--</span></p>
-                    <p><strong>Stop Loss :</strong> <span id="signal-sl">--</span></p>
-                    <p><strong>Take Profit :</strong> <span id="signal-tp">--</span></p>
-                    <p><strong>Confiance :</strong> <span id="signal-conf">--</span></p>
-                </div>
-            </div>
-        </section>
+    <!-- Bouton de test rapide (pour simuler l'arrivée d'un signal sur ton écran) -->
+    <br>
+    <button class="btn-test" onclick="simulerArriveeSignal()">Simuler un Signal d'Achat</button>
 
-        <section class="details-section">
-            <h3>Justification du Signal</h3>
-            <p id="signal-reason">En attente de conditions favorables...</p>
-        </section>
-
-        <section class="history-section">
-            <h3>Historique des Signaux</h3>
-            <div style="overflow-x:auto;">
-                <table id="history-table">
-                    <thead>
-                        <tr>
-                            <th>Heure</th>
-                            <th>Type</th>
-                            <th>Prix Entrée</th>
-                            <th>SL / TP</th>
-                            <th>Tendance</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <!-- Les signaux s'ajouteront ici -->
-                    </tbody>
-                </table>
-            </div>
-        </section>
-    </main>
-
-    <script>
-        // Utilisation d'un flux de données public et ouvert pour l'or
-        // Alternative WebSocket ou simulation robuste basée sur une API de cotation directe
-        let priceHistory = [];
-        const maxHistoryLength = 50;
-
-        function logStatus(message, isConnected = false) {
-            const statusEl = document.getElementById("connection-status");
-            statusEl.textContent = message;
-            statusEl.className = isConnected ? "status connected" : "status disconnected";
-        }
-
-        // Fonction pour récupérer le prix en direct de l'or via une API publique de type REST/Polling ultra-rapide (très stable sur le web)
-        async function fetchGoldPrice() {
-            try {
-                // Utilisation d'une API publique gratuite de métaux précieux
-                const response = await fetch("https://api.gold-api.com/price/XAU");
-                const data = await response.json();
-                
-                if (data && data.price) {
-                    const price = parseFloat(data.price);
-                    const time = new Date().toLocaleTimeString();
-
-                    logStatus("Connecté au flux en direct", true);
-                    document.getElementById("current-price").textContent = price.toFixed(2);
-                    document.getElementById("last-update").textContent = time;
-
-                    priceHistory.push(price);
-                    if (priceHistory.length > maxHistoryLength) {
-                        priceHistory.shift();
-                    }
-
-                    analyzeMarket();
-                }
-            } catch (error) {
-                logStatus("Erreur de récupération du prix");
-                console.error("Erreur API:", error);
-            }
-        }
-
-        function analyzeMarket() {
-            if (priceHistory.length < 5) return;
-
-            const recentPrices = priceHistory.slice(-5);
-            const firstPrice = recentPrices[0];
-            const lastPrice = recentPrices[recentPrices.length - 1];
-
-            let tendance = "Neutre / Consolidation";
-            const trendEl = document.getElementById("market-tendance");
-            if (lastPrice > firstPrice) {
-                tendance = "Haussière (Bullish)";
-                trendEl.style.color = "#27ae60";
-            } else if (lastPrice < firstPrice) {
-                tendance = "Baissière (Bearish)";
-                trendEl.style.color = "#c0392b";
-            }
-            trendEl.textContent = tendance;
-
-            const diff = lastPrice - firstPrice;
-            if (Math.abs(diff) > 0.02) {
-                const type = diff > 0 ? "BUY" : "SELL";
-                const entry = lastPrice;
-                const sl = type === "BUY" ? entry - 1.5 : entry + 1.5;
-                const tp = type === "BUY" ? entry + 3.0 : entry - 3.0;
-                
-                triggerSignal(type, entry, sl, tp, tendance, "Variation de momentum détectée sur l'or.");
-            }
-        }
-
-        let lastSignalType = null;
-        function triggerSignal(type, entry, sl, tp, tendance, reason) {
-            if (type === lastSignalType) return;
-            lastSignalType = type;
-
-            const time = new Date().toLocaleTimeString();
-
-            const badge = document.getElementById("signal-type");
-            badge.textContent = type;
-            badge.className = `badge ${type.toLowerCase()}`;
-
-            document.getElementById("signal-entry").textContent = entry.toFixed(2);
-            document.getElementById("signal-sl").textContent = sl.toFixed(2);
-            document.getElementById("signal-tp").textContent = tp.toFixed(2);
-            document.getElementById("signal-conf").textContent = "82%";
-            document.getElementById("signal-reason").textContent = reason;
-
-            const tbody = document.querySelector("#history-table tbody");
-            const row = document.createElement("tr");
-            row.innerHTML = `
-                <td>${time}</td>
-                <td><span class="badge ${type.toLowerCase()}">${type}</span></td>
-                <td>${entry.toFixed(2)}</td>
-                <td>SL: ${sl.toFixed(2)} / TP: ${tp.toFixed(2)}</td>
-                <td>${tendance}</td>
-            `;
-            tbody.prepend(row);
-        }
-
-        // Lancer la première requête immédiatement, puis actualiser toutes les 3 secondes
-        window.onload = function() {
-            logStatus("Connexion en cours...");
-            fetchGoldPrice();
-            setInterval(fetchGoldPrice, 3000); // Met à jour toutes les 3 secondes en direct
-        };
-    </script>
+    <!-- Liaison avec le fichier JavaScript -->
+    <script src="script.js"></script>
 </body>
-    </html>
-    
+</html>
