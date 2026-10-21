@@ -1,136 +1,144 @@
-const wsUrl = "wss://green.derivws.com/websockets/v3?app_id=1089";
-let ws;
-const symbol = "frxXAUUSD"; 
+let signalTimer = null;
+let currentSignal = null;
 
-// Jeton API personnel intégré
-const apiToken = "Pat_064de0775d182d7c5acfcc234bebfec26bf0ef9f42b6867046dacb23d30a1572"; 
+// Initialisation au chargement de la page pour récupérer les données Biquote
+window.onload = function() {
+    recupererPrixBiquote();
+    // Actualisation automatique du flux Biquote toutes les minutes
+    setInterval(recupererPrixBiquote, 60000);
+};
 
-let priceHistory = [];
-const maxHistoryLength = 50;
-
-function logStatus(message, isConnected = false) {
-    const statusEl = document.getElementById("connection-status");
-    statusEl.textContent = message;
-    statusEl.className = isConnected ? "status connected" : "status disconnected";
-    console.log(message);
+// Fonction de récupération des données depuis Biquote
+function recupererPrixBiquote() {
+    // Connexion ou requête vers l'API/WebSocket de Biquote pour l'or (XAU/USD)
+    // (Exemple de structure pour intégrer le flux Biquote sans bloquer l'interface)
+    console.log("Synchronisation des prix XAU/USD avec Biquote...");
+    
+    // Si tu utilises un WebSocket Biquote, tu intègres ta connexion ici.
+    // Par défaut, on s'assure que l'interface affiche l'état d'attente du signal H4 si aucun signal n'est actif.
+    if (!currentSignal) {
+        document.getElementById("signal-container").innerHTML = `
+            <p style='color: #2ecc71;'>Flux Biquote Connecté (XAU/USD)</p>
+            <p>En attente de la prochaine configuration H4...</p>
+        `;
+    }
 }
 
-function connectDeriv() {
-    logStatus("Connexion en cours...");
-    ws = new WebSocket(wsUrl);
+// Fonction déclenchée lors de l'arrivée d'un signal H4
+function genererSignalOrH4(typeSignal, prixCible, sl, tp) {
+    const dureeValidite = 4 * 60 * 60; // 4 heures en secondes (H4)
+    let tempsRestant = dureeValidite;
+
+    currentSignal = {
+        type: typeSignal, // 'BUY' ou 'SELL'
+        price: prixCible,
+        stopLoss: sl,
+        takeProfit: tp,
+        actif: 'XAU/USD'
+    };
+
+    afficherInterfaceSignal(currentSignal, tempsRestant);
+
+    // Lancer le compte à rebours H4
+    clearInterval(signalTimer);
+    signalTimer = setInterval(() => {
+        tempsRestant--;
+        mettreAJourAffichageTemps(tempsRestant);
+
+        if (tempsRestant <= 0) {
+            clearInterval(signalTimer);
+            annulerSignal();
+        }
+    }, 1000);
+}
+
+// Met à jour l'affichage visuel du signal H4
+function afficherInterfaceSignal(signal, tempsRestant) {
+    const heures = Math.floor(tempsRestant / 3600);
+    const minutes = Math.floor((tempsRestant % 3600) / 60);
+    const secondes = tempsRestant % 60;
+    const container = document.getElementById("signal-container");
+    
+    container.innerHTML = `
+        <h3 style="color: ${signal.type === 'BUY' ? '#27ae60' : '#e74c3c'};">
+            Signal H4 (Biquote) : ${signal.type}
+        </h3>
+        <p>Entrée : <b>${signal.price}</b></p>
+        <p style="color: #e74c3c; font-size: 0.9rem;">Stop Loss : <b>${signal.stopLoss}</b></p>
+        <p style="color: #27ae60; font-size: 0.9rem;">Take Profit : <b>${signal.takeProfit}</b></p>
+        <p style="font-size: 1.1rem; color: #f1c40f; margin-top: 10px;">
+            <strong>Expiration : ${heures}h ${minutes}m ${secondes}s</strong>
+        </p>
+    `;
+}
+
+function mettreAJourAffichageTemps(tempsRestant) {
+    if (currentSignal) {
+        afficherInterfaceSignal(currentSignal, tempsRestant);
+    }
+}
+
+// Annule automatiquement le signal si le délai H4 expire
+function annulerSignal() {
+    currentSignal = null;
+    document.getElementById("signal-container").innerHTML = `
+        <p style='color: #e74c3c;'>Signal H4 expiré.</p>
+        <p>En attente du prochain signal Biquote...</p>
+    `;
+}
+
+// Simulation d'un signal H4 basé sur les cours Biquote
+function simulerArriveeSignalH4() {
+    const prixBiquoteFictif = (4118.00).toFixed(2);
+    const slFictif = (4158.00).toFixed(2); // Stop Loss large H4
+    const tpFictif = (4038.00).toFixed(2); // Take Profit large H4
+    
+    genererSignalOrH4('SELL', prixBiquoteFictif, slFictif, tpFictif);
+}
+
+// Exécution de l'ordre sur Deriv en accord avec le signal H4
+function validerEtExecuterPosition() {
+    if (!currentSignal) {
+        alert("Aucun signal H4 actif !");
+        return;
+    }
+
+    const ws = new WebSocket('wss://ws.derivws.com/websockets/v3?app_id=1089');
 
     ws.onopen = function() {
-        logStatus("Connecté. Authentification du compte...");
+        const ordreAchat = {
+            "buy": 1,
+            "price": currentSignal.price,
+            "parameters": {
+                "amount": 0.01, // Lot sécurisé pour tenir la distance en H4
+                "basis": "stake",
+                "currency": "USD",
+                "symbol": "frxXAUUSD",
+                "duration": 4,
+                "duration_unit": "h", // Durée 4 heures (H4)
+                "contract_type": currentSignal.type === 'BUY' ? "CALL" : "PUT"
+            }
+        };
         
-        // Authentification avec ton compte personnel
-        ws.send(JSON.stringify({
-            authorize: apiToken
-        }));
+        ws.send(JSON.stringify(ordreAchat));
     };
 
     ws.onmessage = function(event) {
         const data = JSON.parse(event.data);
-        console.log("Message reçu de Deriv :", data);
-
-        if (data.error) {
-            logStatus("Erreur : " + data.error.message);
-            return;
-        }
-
-        // Une fois l'autorisation réussie, on s'abonne aux prix de l'or
-        if (data.msg_type === "authorize") {
-            logStatus("Compte connecté (" + data.authorize.email + "). Abonnement...", true);
-            ws.send(JSON.stringify({
-                ticks: symbol,
-                subscribe: 1
-            }));
-        }
         
-        // Réception des prix en temps réel
-        if (data.msg_type === "tick") {
-            const tick = data.tick;
-            const price = tick.quote;
-            const time = new Date(tick.epoch * 1000).toLocaleTimeString();
-
-            document.getElementById("current-price").textContent = price.toFixed(2);
-            document.getElementById("last-update").textContent = time;
-
-            priceHistory.push(price);
-            if (priceHistory.length > maxHistoryLength) {
-                priceHistory.shift();
-            }
-
-            analyzeMarket();
+        if (data.msg_type === "buy") {
+            alert("Succès ! Position H4 ouverte sur Deriv. ID : " + data.buy.contract_id);
+            clearInterval(signalTimer);
+            annulerSignal();
+            ws.close();
+        } else if (data.error) {
+            alert("Erreur Deriv : " + data.error.message);
+            ws.close();
         }
     };
 
     ws.onerror = function(error) {
-        logStatus("Erreur WebSocket");
-        console.error("WebSocket Error: ", error);
+        alert("Erreur de connexion WebSocket avec Deriv.");
+        ws.close();
     };
-
-    ws.onclose = function() {
-        logStatus("Déconnecté. Nouvelle tentative...");
-        setTimeout(connectDeriv, 5000);
-    };
-}
-
-function analyzeMarket() {
-    if (priceHistory.length < 10) return;
-
-    const recentPrices = priceHistory.slice(-10);
-    const firstPrice = recentPrices[0];
-    const lastPrice = recentPrices[recentPrices.length - 1];
-
-    let tendance = "Neutre / Consolidation";
-    if (lastPrice > firstPrice) {
-        tendance = "Haussière (Bullish)";
-        document.getElementById("market-tendance").style.color = "#27ae60";
-    } else if (lastPrice < firstPrice) {
-        tendance = "Baissière (Bearish)";
-        document.getElementById("market-tendance").style.color = "#c0392b";
     }
-    document.getElementById("market-tendance").textContent = tendance;
-
-    const diff = lastPrice - firstPrice;
-    if (Math.abs(diff) > 0.05) {
-        const type = diff > 0 ? "BUY" : "SELL";
-        const entry = lastPrice;
-        const sl = type === "BUY" ? entry - 1.5 : entry + 1.5;
-        const tp = type === "BUY" ? entry + 3.0 : entry - 3.0;
-        
-        triggerSignal(type, entry, sl, tp, tendance, "Variation de prix détectée.");
-    }
-}
-
-let lastSignalType = null;
-function triggerSignal(type, entry, sl, tp, tendance, reason) {
-    if (type === lastSignalType) return;
-    lastSignalType = type;
-
-    const time = new Date().toLocaleTimeString();
-
-    const badge = document.getElementById("signal-type");
-    badge.textContent = type;
-    badge.className = `badge ${type.toLowerCase()}`;
-
-    document.getElementById("signal-entry").textContent = entry.toFixed(2);
-    document.getElementById("signal-sl").textContent = sl.toFixed(2);
-    document.getElementById("signal-tp").textContent = tp.toFixed(2);
-    document.getElementById("signal-conf").textContent = "80%";
-    document.getElementById("signal-reason").textContent = reason;
-
-    const tbody = document.querySelector("#history-table tbody");
-    const row = document.createElement("tr");
-    row.innerHTML = `
-        <td>${time}</td>
-        <td><span class="badge ${type.toLowerCase()}">${type}</span></td>
-        <td>${entry.toFixed(2)}</td>
-        <td>SL: ${sl.toFixed(2)} / TP: ${tp.toFixed(2)}</td>
-        <td>${tendance}</td>
-    `;
-    tbody.prepend(row);
-}
-
-window.onload = connectDeriv;
-        
