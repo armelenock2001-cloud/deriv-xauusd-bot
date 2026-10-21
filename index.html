@@ -1,7 +1,8 @@
 <!DOCTYPE html><html lang="fr">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0"><title>Robot d'analyse XAU/USD — H1</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#121824"><title>Robot d'analyse XAU/USD — H1</title>
 
 <style>
     * {
@@ -96,6 +97,7 @@
         background: #1e272e;
         padding: 15px;
         border-radius: 8px;
+        overflow-wrap: anywhere;
     }
 
     .indicator span {
@@ -136,10 +138,12 @@
         font-size: 1rem;
         font-weight: bold;
         cursor: pointer;
+        min-height: 44px;
     }
 
     button:disabled {
         opacity: 0.6;
+        cursor: wait;
     }
 
     .section-heading {
@@ -157,6 +161,7 @@
 
     .table-wrapper {
         overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
     }
 
     table {
@@ -170,6 +175,7 @@
         padding: 12px;
         text-align: left;
         border-bottom: 1px solid #2f3640;
+        white-space: nowrap;
     }
 
     th {
@@ -190,6 +196,14 @@
         .history-section {
             padding: 14px;
         }
+
+        .dashboard {
+            grid-template-columns: 1fr;
+        }
+
+        .section-heading button {
+            width: 100%;
+        }
     }
 </style>
 
@@ -206,6 +220,7 @@
     <div class="card">
         <h3>Prix actuel de l'or</h3>
         <p id="current-price" class="value">--.--</p>
+
         <div class="muted">
             Dernière mise à jour :
             <span id="last-update">--:--:--</span>
@@ -215,6 +230,7 @@
     <div class="card">
         <h3>Tendance du marché H1</h3>
         <p id="market-tendance" class="value">Analyse...</p>
+
         <div class="muted">
             Dernière analyse :
             <span id="last-analysis">En attente</span>
@@ -250,7 +266,9 @@
     <div class="indicator">
         EMA 200
         <span id="ema200">--</span>
-        <small class="muted">* Provisoire si moins de 200 bougies</small>
+        <small class="muted">
+            * Provisoire si moins de 200 bougies
+        </small>
     </div>
 
     <div class="indicator">
@@ -277,6 +295,7 @@
     <div class="section-heading">
         <div>
             <h3>Analyse du marché</h3>
+
             <p class="muted">
                 Prix actualisé toutes les 15 secondes.
                 Analyse automatique toutes les 60 secondes.
@@ -304,11 +323,10 @@
                 </tr>
             </thead>
 
-            <tbody>
-            </tbody>
+            <tbody></tbody>
         </table>
     </div>
 </section>
 
-</main><script src="app.js?v=3"></script></body>
+</main><script src="app.js?v=4"></script></body>
 </html>
